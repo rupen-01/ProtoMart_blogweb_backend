@@ -1,0 +1,101 @@
+npm start
+```
+
+---
+
+## Step 26: API Testing with Postman/Thunder Client
+
+### Example API Calls:
+
+**1. Register User**
+```
+POST http://localhost:5000/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "password": "password123",
+  "phone": "9876543210",
+  "dateOfBirth": "1990-01-01",
+  "pinCode": "452001"
+}
+```
+
+**2. Login**
+```
+POST http://localhost:5000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "john@example.com",
+  "password": "password123"
+}
+```
+
+**3. Upload Photo**
+```
+POST http://localhost:5000/api/photos/upload
+Authorization: Bearer YOUR_JWT_TOKEN
+Content-Type: multipart/form-data
+
+photo: [Select file]
+```
+
+**4. Get All Photos**
+```
+GET http://localhost:5000/api/photos?page=1&limit=20
+```
+
+**5. Admin Approve Photo**
+```
+POST http://localhost:5000/api/admin/photos/PHOTO_ID/approve
+Authorization: Bearer ADMIN_JWT_TOKEN
+```
+
+---
+
+## Project Structure Summary
+```
+travel-photos-backend/
+├── src/
+│   ├── config/
+│   │   ├── database.js          ✅ MongoDB connection
+│   │   ├── cloudinary.js        ✅ Cloudinary config
+│   │   ├── redis.js             ✅ Redis config (optional)
+│   │   └── constants.js         ✅ App constants
+│   ├── models/
+│   │   ├── User.js              ✅ User schema
+│   │   ├── Photo.js             ✅ Photo schema
+│   │   ├── Place.js             ✅ Place schema
+│   │   ├── Blog.js              ✅ Blog schema
+│   │   ├── WatermarkSetting.js  ✅ Watermark schema
+│   │   └── Transaction.js       ✅ Transaction schema
+│   ├── controllers/
+│   │   ├── authController.js    ✅ Auth logic
+│   │   ├── userController.js    ✅ User profile logic
+│   │   ├── photoController.js   ✅ Photo upload/fetch
+│   │   ├── placeController.js   ✅ Place management
+│   │   ├── blogController.js    ✅ Blog CRUD
+│   │   └── adminController.js   ✅ Admin approval
+│   ├── routes/
+│   │   ├── authRoutes.js        ✅ Auth endpoints
+│   │   ├── userRoutes.js        ✅ User endpoints
+│   │   ├── photoRoutes.js       ✅ Photo endpoints
+│   │   ├── placeRoutes.js       ✅ Place endpoints
+│   │   ├── blogRoutes.js        ✅ Blog endpoints
+│   │   └── adminRoutes.js       ✅ Admin endpoints
+│   ├── middlewares/
+│   │   ├── authMiddleware.js    ✅ JWT verification
+│   │   ├── uploadMiddleware.js  ✅ Multer setup
+│   │   ├── errorHandler.js      ✅ Error handling
+│   │   └── validateRequest.js   ✅ Input validation
+│   ├── services/
+│   │   ├── cloudinaryService.js ✅ Cloudinary operations
+│   │   ├── geocodingService.js  ✅ Google Maps API
+│   │   └── emailService.js      ✅ Email notifications
+│   └── app.js                   ✅ Express app setup
+├── .env                         ✅ Environment variables
+├── .env.example                 
+├── package.json                 ✅ Dependencies
+└── server.js                    ✅ Server entry point

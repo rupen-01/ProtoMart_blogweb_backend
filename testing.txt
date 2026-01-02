@@ -1,0 +1,8 @@
+
+
+======= ROUTES ====
+1. adminRoutes.js
+2. blogRoutes.js
+3. placeRoutes.js
+
+ya bcha hai bs or map wala dekhna hai ek baar 

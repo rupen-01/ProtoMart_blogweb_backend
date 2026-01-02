@@ -1,0 +1,72 @@
+travel-photos-backend/
+├── src/
+│   ├── config/
+│   │   ├── database.js
+│   │   ├── aws.js
+│   │   ├── redis.js
+│   │   └── constants.js
+│   ├── models/
+│   │   ├── User.js
+│   │   ├── Photo.js
+│   │   ├── Place.js
+│   │   ├── Blog.js
+│   │   ├── WatermarkSetting.js
+│   │   └── Transaction.js
+│   ├── controllers/
+│   │   ├── authController.js
+│   │   ├── userController.js
+│   │   ├── photoController.js
+│   │   ├── placeController.js
+│   │   ├── blogController.js
+│   │   ├── walletController.js
+│   │   └── adminController.js
+│   ├── routes/
+│   │   ├── authRoutes.js
+│   │   ├── userRoutes.js
+│   │   ├── photoRoutes.js
+│   │   ├── placeRoutes.js
+│   │   ├── blogRoutes.js
+│   │   ├── walletRoutes.js
+│   │   └── adminRoutes.js
+│   ├── middlewares/
+│   │   ├── authMiddleware.js
+│   │   ├── uploadMiddleware.js
+│   │   ├── errorHandler.js
+│   │   ├── rateLimiter.js
+│   │   └── validateRequest.js
+│   ├── services/
+│   │   ├── s3Service.js
+│   │   ├── watermarkService.js
+│   │   ├── googlePhotosService.js
+│   │   ├── geocodingService.js
+│   │   ├── emailService.js
+│   │   └── redisService.js
+│   ├── workers/
+│   │   ├── watermarkQueue.js
+│   │   ├── photoSyncQueue.js
+│   │   └── emailQueue.js
+│   ├── utils/
+│   │   ├── exifExtractor.js
+│   │   ├── validators.js
+│   │   └── helpers.js
+│   └── app.js
+├── .env
+├── .env.example
+├── package.json
+└── server.js
+
+
+
+
+
+Key APIs to Build
+
+Auth APIs: Register, Login, Refresh Token, Forgot Password
+User APIs: Get Profile, Update Profile, Upload Profile Photo
+Photo APIs: Upload, Fetch by Place, Fetch User Photos, Delete
+Google Photos APIs: Authenticate, Fetch Albums, Sync Album
+Watermark APIs: Get Settings, Update Settings (admin only)
+Places APIs: Get All Places, Get Place Details, Search Places
+Blog APIs: Create, Read, Update, Delete, List by Place
+Wallet APIs: Get Balance, Get Transactions, Redeem
+Admin APIs: Approve/Reject Photos, Manage Users, Analytics
