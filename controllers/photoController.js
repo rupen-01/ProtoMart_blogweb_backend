@@ -21,9 +21,26 @@ exports.uploadPhoto = async (req, res) => {
 
     const userId = req.user._id;
     const fileBuffer = req.file.buffer;
+    
+    // Get manual coordinates from request body (from map click)
+    const manualLat = req.body.latitude;
+    const manualLng = req.body.longitude;
+    
+    let coordinates = null;
+    
+    // Prioritize manual coordinates over EXIF
+    if (manualLat && manualLng) {
+      coordinates = [parseFloat(manualLng), parseFloat(manualLat)];
+    } else {
+      // Only use EXIF if no manual coordinates provided
+      const exifResult = cloudinaryService.extractExifData(fileBuffer);
+      if (exifResult.coordinates && exifResult.coordinates[0] && exifResult.coordinates[1]) {
+        coordinates = exifResult.coordinates;
+      }
+    }
 
-    // Extract EXIF data and GPS coordinates
-    const { exifData, coordinates } = cloudinaryService.extractExifData(fileBuffer);
+    // Extract EXIF data (without coordinates)
+    const { exifData } = cloudinaryService.extractExifData(fileBuffer);
 
     // Upload to Cloudinary
     const cloudinaryResult = await cloudinaryService.uploadPhoto(fileBuffer, {
@@ -46,7 +63,7 @@ exports.uploadPhoto = async (req, res) => {
       source: 'direct_upload'
     };
 
-    // If GPS coordinates found, reverse geocode
+    // If coordinates exist (manual or EXIF), process location
     if (coordinates && coordinates[0] && coordinates[1]) {
       photoData.location = {
         type: 'Point',
@@ -124,7 +141,6 @@ exports.uploadPhoto = async (req, res) => {
     });
   }
 };
-
 /**
  * Get photo with watermark
  * GET /api/photos/:id
@@ -201,6 +217,73 @@ exports.getPhotos = async (req, res) => {
     } = req.query;
 
     const query = { approvalStatus: status };
+
+    if (placeId) query.placeId = placeId;
+    if (userId) query.userId = userId;
+
+    const skip = (page - 1) * limit;
+    const sortOrder = order === 'desc' ? -1 : 1;
+
+    const photos = await Photo.find(query)
+      .populate('userId', 'name profilePhoto')
+      .populate('placeId', 'name city state country')
+      .sort({ [sortBy]: sortOrder })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Photo.countDocuments(query);
+
+    // Get active watermark settings
+    const watermarkSettings = await WatermarkSetting.findOne({ isActive: true });
+
+    // Add watermarked URLs to each photo
+    if (watermarkSettings) {
+      photos.forEach(photo => {
+        const variants = cloudinaryService.getPhotoVariants(
+          photo.cloudinaryId,
+          watermarkSettings
+        );
+        photo.watermarkedUrl = variants.medium;
+        photo.thumbnailUrl = variants.thumbnail;
+      });
+    }
+
+    res.json({
+      success: true,
+      data: photos,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / limit),
+        totalPhotos: total,
+        limit: parseInt(limit)
+      }
+    });
+
+  } catch (error) {
+    console.error('Get photos error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch photos',
+      error: error.message
+    });
+  }
+};
+exports.getPhotosByCoordinates = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      placeId,
+      userId,
+      status = 'approved',
+      sortBy = 'createdAt',
+      order = 'desc'
+    } = req.query;
+
+    const query = { approvalStatus: status };
+
+    query.location = { $exists: true, $ne: null };
+    query['location.coordinates'] = { $exists: true, $ne: [] };
 
     if (placeId) query.placeId = placeId;
     if (userId) query.userId = userId;
@@ -402,42 +485,55 @@ exports.toggleLike = async (req, res) => {
 exports.getMyPhotos = async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
-    const userId = req.user._id;
 
-    const query = { userId };
-    if (status) query.approvalStatus = status;
-
-    const skip = (page - 1) * limit;
-
-    const photos = await Photo.find(query)
-      .populate('placeId', 'name city state country')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    const total = await Photo.countDocuments(query);
-
-    // Get watermark settings
-    const watermarkSettings = await WatermarkSetting.findOne({ isActive: true });
-
-    if (watermarkSettings) {
-      photos.forEach(photo => {
-        const variants = cloudinaryService.getPhotoVariants(
-          photo.cloudinaryId,
-          watermarkSettings
-        );
-        photo.thumbnailUrl = variants.thumbnail;
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
       });
     }
+
+    const userId = req.user._id;
+    const query = { userId };
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+      query.approvalStatus = status;
+    }
+
+    const skip = (page - 1) * parseInt(limit);
+    const limitNum = parseInt(limit);
+
+    const [photos, total] = await Promise.all([
+      Photo.find(query)
+        .populate('placeId', 'name city state country')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Photo.countDocuments(query)
+    ]);
+
+    // Generate Cloudinary URLs for each photo
+    photos.forEach(photo => {
+      const cloudinaryId = photo.cloudinaryId;
+      const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+      
+      // Generate different variants
+      photo.thumbnailUrl = `https://res.cloudinary.com/${cloudName}/image/upload/w_400,h_300,c_fill,q_auto:good/${cloudinaryId}`;
+      
+      photo.watermarkedUrl = `https://res.cloudinary.com/${cloudName}/image/upload/co_3148a5,g_south_east,l_text:Arial_24:%40%20ProtoMart,o_0.8,x_20,y_20/q_auto:good/${cloudinaryId}`;
+      
+      photo.displayUrl = `https://res.cloudinary.com/${cloudName}/image/upload/w_1200,q_auto:good/${cloudinaryId}`;
+    });
 
     res.json({
       success: true,
       data: photos,
       pagination: {
         currentPage: parseInt(page),
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.ceil(total / limitNum),
         totalPhotos: total,
-        limit: parseInt(limit)
+        limit: limitNum,
+        hasMore: skip + photos.length < total
       }
     });
 
@@ -446,7 +542,7 @@ exports.getMyPhotos = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch photos',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
