@@ -1,12 +1,15 @@
 const express = require('express');
 const router = express.Router();
 
-const adminPhotoController = require('../controllers/adminController');
+const adminController = require('../controllers/adminController');
 const { protect, admin } = require('../middlewares/authMiddleware');
+const upload = require('../middlewares/uploadMiddleware'); // 👈 watermark image ke liye
 
 /**
- * All admin routes
+ * =======================
+ * ADMIN ROUTES
  * Must be logged in + admin
+ * =======================
  */
 router.use(protect);
 router.use(admin);
@@ -16,19 +19,19 @@ router.use(admin);
 // Get all pending photos (pagination)
 router.get(
   '/photos/pending',
-  adminPhotoController.getPendingPhotos
+  adminController.getPendingPhotos
 );
 
 // Approve photo
 router.post(
   '/photos/:id/approve',
-  adminPhotoController.approvePhoto
+  adminController.approvePhoto
 );
 
 // Reject photo
 router.post(
   '/photos/:id/reject',
-  adminPhotoController.rejectPhoto
+  adminController.rejectPhoto
 );
 
 /* ===================== WATERMARK ===================== */
@@ -36,13 +39,21 @@ router.post(
 // Get active watermark settings
 router.get(
   '/watermark',
-  adminPhotoController.getWatermarkSettings
+  adminController.getWatermarkSettings
 );
 
-// Update watermark settings
+/**
+ * Update watermark settings
+ * Supports:
+ * - text watermark
+ * - image watermark
+ * - opacity
+ * - x,y position
+ */
 router.put(
   '/watermark',
-  adminPhotoController.updateWatermarkSettings
+  upload.single('watermarkImage'), // 👈 OPTIONAL image upload
+  adminController.updateWatermarkSettings
 );
 
 /* ===================== DASHBOARD ===================== */
@@ -50,7 +61,7 @@ router.put(
 // Admin dashboard stats
 router.get(
   '/stats',
-  adminPhotoController.getStats
+  adminController.getStats
 );
 
 module.exports = router;

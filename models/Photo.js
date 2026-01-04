@@ -34,10 +34,11 @@ const photoSchema = new mongoose.Schema({
     width: Number,
     height: Number
   },
-  mimeType: {
-    type: String,
-    required: true
-  },
+  mediaType: {
+  type: String,
+  enum: ['image', 'video'],
+  default: 'image'
+},
   
   // Location data
   location: {
@@ -101,7 +102,7 @@ const photoSchema = new mongoose.Schema({
   // Source tracking
   source: {
     type: String,
-    enum: ['direct_upload', 'google_photos'],
+    enum: ['direct_upload', 'google_photos', 'bulk_upload', 'admin_upload'],
     default: 'direct_upload'
   },
   googlePhotoId: String,

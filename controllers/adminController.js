@@ -2,6 +2,7 @@ const Photo = require('../models/Photo');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const WatermarkSetting = require('../models/WatermarkSetting');
+const cloudinaryService = require('../services/cloudinaryService');
 
 /**
  * Get all pending photos for approval
@@ -160,8 +161,8 @@ exports.getWatermarkSettings = async (req, res) => {
     let settings = await WatermarkSetting.findOne({ isActive: true });
 
     if (!settings) {
-      // Create default settings
       settings = await WatermarkSetting.create({
+        type: 'text', // ✅ IMPORTANT
         text: '© BodyCureHealth Travel',
         fontFamily: 'Arial',
         fontSize: 24,
@@ -190,22 +191,76 @@ exports.getWatermarkSettings = async (req, res) => {
 
 exports.updateWatermarkSettings = async (req, res) => {
   try {
-    const { text, fontFamily, fontSize, color, position, opacity } = req.body;
-
-    // Deactivate all existing settings
-    await WatermarkSetting.updateMany({}, { isActive: false });
-
-    // Create new settings
-    const settings = await WatermarkSetting.create({
+    const {
+      type,
       text,
-      fontFamily: fontFamily || 'Arial',
-      fontSize: fontSize || 24,
-      color: color || '#FFFFFF',
-      position: position || { x: 50, y: 90 },
-      opacity: opacity !== undefined ? opacity : 0.7,
+      fontFamily,
+      fontSize,
+      color,
+      opacity,
+      position
+    } = req.body;
+
+    // Parse position if sent as JSON string
+    let parsedPosition = { x: 50, y: 90 };
+    if (position) {
+      try {
+        parsedPosition = typeof position === 'string' ? JSON.parse(position) : position;
+      } catch (err) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid position format'
+        });
+      }
+    }
+
+    // ✅ Validate: If type is image, file must be provided OR already exists in DB
+    const existingSettings = await WatermarkSetting.findOne({ isActive: true });
+    
+    if (type === 'image' && !req.file && !existingSettings?.watermarkImageId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Watermark image is required when type is "image"'
+      });
+    }
+
+    // Deactivate old watermark
+    await WatermarkSetting.updateMany({ isActive: true }, { isActive: false });
+
+    // Build new watermark object
+    const newSettings = {
+      type,
       isActive: true,
-      createdBy: req.user._id
-    });
+      createdBy: req.user._id,
+      position: parsedPosition,
+      opacity: opacity !== undefined ? parseFloat(opacity) : 0.7
+    };
+
+    // ✅ Add type-specific fields
+    if (type === 'text') {
+      newSettings.text = text || '© BodyCureHealth Travel';
+      newSettings.fontFamily = fontFamily || 'Arial';
+      newSettings.fontSize = parseInt(fontSize) || 24;
+      newSettings.color = color || '#FFFFFF';
+    } else if (type === 'image') {
+      if (req.file) {
+        // New image uploaded - upload to Cloudinary
+        const uploadResult = await cloudinaryService.uploadMedia(
+          req.file.buffer,
+          req.file.mimetype,
+          { folder: 'watermarks' }
+        );
+        
+        newSettings.watermarkImageId = uploadResult.public_id;
+        newSettings.watermarkImageUrl = uploadResult.secure_url;
+      } else if (existingSettings?.watermarkImageId) {
+        // No new image, reuse existing
+        newSettings.watermarkImageId = existingSettings.watermarkImageId;
+        newSettings.watermarkImageUrl = existingSettings.watermarkImageUrl;
+      }
+    }
+
+    const settings = await WatermarkSetting.create(newSettings);
 
     res.json({
       success: true,
@@ -222,6 +277,7 @@ exports.updateWatermarkSettings = async (req, res) => {
     });
   }
 };
+
 
 /**
  * Get admin dashboard stats

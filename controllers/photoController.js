@@ -10,137 +10,194 @@ const geocodingService = require('../services/geocodingService');
  * Upload single photo
  * POST /api/photos/upload
  */
-exports.uploadPhoto = async (req, res) => {
+// exports.uploadPhoto = async (req, res) => {
+//   try {
+//     if (!req.file) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Please upload a photo'
+//       });
+//     }
+
+//     const userId = req.user._id;
+//     const fileBuffer = req.file.buffer;
+    
+//     // Get manual coordinates from request body (from map click)
+//     const manualLat = req.body.latitude;
+//     const manualLng = req.body.longitude;
+    
+//     let coordinates = null;
+    
+//     // Prioritize manual coordinates over EXIF
+//     if (manualLat && manualLng) {
+//       coordinates = [parseFloat(manualLng), parseFloat(manualLat)];
+//     } else {
+//       // Only use EXIF if no manual coordinates provided
+//       const exifResult = cloudinaryService.extractExifData(fileBuffer);
+//       if (exifResult.coordinates && exifResult.coordinates[0] && exifResult.coordinates[1]) {
+//         coordinates = exifResult.coordinates;
+//       }
+//     }
+
+//     // Extract EXIF data (without coordinates)
+//     const { exifData } = cloudinaryService.extractExifData(fileBuffer);
+
+//     // Upload to Cloudinary
+//     const cloudinaryResult = await cloudinaryService.uploadPhoto(fileBuffer, {
+//       folder: `${process.env.CLOUDINARY_FOLDER}/users/${userId}`
+//     });
+
+//     // Prepare photo data
+//     const photoData = {
+//       userId,
+//       cloudinaryId: cloudinaryResult.public_id,
+//       originalUrl: cloudinaryResult.secure_url,
+//       fileName: req.file.originalname,
+//       fileSize: cloudinaryResult.bytes,
+//       dimensions: {
+//         width: cloudinaryResult.width,
+//         height: cloudinaryResult.height
+//       },
+//       mimeType: req.file.mimetype,
+//       exifData,
+//       source: 'direct_upload'
+//     };
+
+//     // If coordinates exist (manual or EXIF), process location
+//     if (coordinates && coordinates[0] && coordinates[1]) {
+//       photoData.location = {
+//         type: 'Point',
+//         coordinates: coordinates
+//       };
+
+//       try {
+//         const locationData = await geocodingService.reverseGeocode(
+//           coordinates[1], // latitude
+//           coordinates[0]  // longitude
+//         );
+
+//         if (locationData) {
+//           photoData.placeName = locationData.placeName;
+//           photoData.city = locationData.city;
+//           photoData.state = locationData.state;
+//           photoData.country = locationData.country;
+
+//           // Find or create Place
+//           let place = await Place.findOne({
+//             name: locationData.placeName,
+//             'location.coordinates': {
+//               $near: {
+//                 $geometry: {
+//                   type: 'Point',
+//                   coordinates: coordinates
+//                 },
+//                 $maxDistance: 1000 // 1km radius
+//               }
+//             }
+//           });
+
+//           if (!place) {
+//             place = await Place.create({
+//               name: locationData.placeName,
+//               location: {
+//                 type: 'Point',
+//                 coordinates: coordinates
+//               },
+//               city: locationData.city,
+//               state: locationData.state,
+//               country: locationData.country
+//             });
+//           }
+
+//           photoData.placeId = place._id;
+//         }
+//       } catch (geoError) {
+//         console.error('Geocoding error:', geoError);
+//         // Continue without location data
+//       }
+//     }
+
+//     // Create photo record
+//     const photo = await Photo.create(photoData);
+
+//     // Populate user and place data
+//     await photo.populate('userId', 'name email profilePhoto');
+//     if (photo.placeId) {
+//       await photo.populate('placeId', 'name city state country');
+//     }
+
+//     res.status(201).json({
+//       success: true,
+//       message: 'Photo uploaded successfully. Waiting for approval.',
+//       data: photo
+//     });
+
+//   } catch (error) {
+//     console.error('Photo upload error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Failed to upload photo',
+//       error: error.message
+//     });
+//   }
+// };
+
+/**
+ * Bulk upload images & videos
+ * POST /api/photos/upload/bulk
+ */
+exports.bulkUpload = async (req, res) => {
   try {
-    if (!req.file) {
+    if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Please upload a photo'
+        message: 'Please upload files'
       });
     }
 
     const userId = req.user._id;
-    const fileBuffer = req.file.buffer;
-    
-    // Get manual coordinates from request body (from map click)
-    const manualLat = req.body.latitude;
-    const manualLng = req.body.longitude;
-    
-    let coordinates = null;
-    
-    // Prioritize manual coordinates over EXIF
-    if (manualLat && manualLng) {
-      coordinates = [parseFloat(manualLng), parseFloat(manualLat)];
-    } else {
-      // Only use EXIF if no manual coordinates provided
-      const exifResult = cloudinaryService.extractExifData(fileBuffer);
-      if (exifResult.coordinates && exifResult.coordinates[0] && exifResult.coordinates[1]) {
-        coordinates = exifResult.coordinates;
-      }
-    }
+    const uploadedPhotos = [];
 
-    // Extract EXIF data (without coordinates)
-    const { exifData } = cloudinaryService.extractExifData(fileBuffer);
-
-    // Upload to Cloudinary
-    const cloudinaryResult = await cloudinaryService.uploadPhoto(fileBuffer, {
-      folder: `${process.env.CLOUDINARY_FOLDER}/users/${userId}`
-    });
-
-    // Prepare photo data
-    const photoData = {
-      userId,
-      cloudinaryId: cloudinaryResult.public_id,
-      originalUrl: cloudinaryResult.secure_url,
-      fileName: req.file.originalname,
-      fileSize: cloudinaryResult.bytes,
-      dimensions: {
-        width: cloudinaryResult.width,
-        height: cloudinaryResult.height
-      },
-      mimeType: req.file.mimetype,
-      exifData,
-      source: 'direct_upload'
-    };
-
-    // If coordinates exist (manual or EXIF), process location
-    if (coordinates && coordinates[0] && coordinates[1]) {
-      photoData.location = {
-        type: 'Point',
-        coordinates: coordinates
-      };
-
-      try {
-        const locationData = await geocodingService.reverseGeocode(
-          coordinates[1], // latitude
-          coordinates[0]  // longitude
-        );
-
-        if (locationData) {
-          photoData.placeName = locationData.placeName;
-          photoData.city = locationData.city;
-          photoData.state = locationData.state;
-          photoData.country = locationData.country;
-
-          // Find or create Place
-          let place = await Place.findOne({
-            name: locationData.placeName,
-            'location.coordinates': {
-              $near: {
-                $geometry: {
-                  type: 'Point',
-                  coordinates: coordinates
-                },
-                $maxDistance: 1000 // 1km radius
-              }
-            }
-          });
-
-          if (!place) {
-            place = await Place.create({
-              name: locationData.placeName,
-              location: {
-                type: 'Point',
-                coordinates: coordinates
-              },
-              city: locationData.city,
-              state: locationData.state,
-              country: locationData.country
-            });
-          }
-
-          photoData.placeId = place._id;
+    for (const file of req.files) {
+      const cloudResult = await cloudinaryService.uploadMedia(
+        file.buffer,
+        file.mimetype,
+        {
+          folder: `${process.env.CLOUDINARY_FOLDER}/users/${userId}`
         }
-      } catch (geoError) {
-        console.error('Geocoding error:', geoError);
-        // Continue without location data
-      }
-    }
+      );
 
-    // Create photo record
-    const photo = await Photo.create(photoData);
+      const photo = await Photo.create({
+        userId,
+        cloudinaryId: cloudResult.public_id,
+        originalUrl: cloudResult.secure_url,
+        fileName: file.originalname,
+        fileSize: cloudResult.bytes,
+        mimeType: file.mimetype,
+        mediaType: file.mimetype.startsWith('video') ? 'video' : 'image',
+        source: 'bulk_upload'
+      });
 
-    // Populate user and place data
-    await photo.populate('userId', 'name email profilePhoto');
-    if (photo.placeId) {
-      await photo.populate('placeId', 'name city state country');
+      uploadedPhotos.push(photo);
     }
 
     res.status(201).json({
       success: true,
-      message: 'Photo uploaded successfully. Waiting for approval.',
-      data: photo
+      message: 'upload successful',
+      count: uploadedPhotos.length,
+      data: uploadedPhotos
     });
 
   } catch (error) {
-    console.error('Photo upload error:', error);
+    console.error('Bulk upload error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to upload photo',
+      message: 'Bulk upload failed',
       error: error.message
     });
   }
 };
+
 /**
  * Get photo with watermark
  * GET /api/photos/:id

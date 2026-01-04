@@ -11,7 +11,7 @@ router.get('/nearby', optionalAuth, photoController.getNearbyPhotos);
 router.get('/:id', optionalAuth, photoController.getPhoto);
 
 // Protected routes
-router.post('/upload', protect, upload.single('photo'), photoController.uploadPhoto);
+router.post('/upload', protect, upload.array('photo'), photoController.bulkUpload);
 router.delete('/:id', protect, photoController.deletePhoto);
 router.post('/:id/like', protect, photoController.toggleLike);
 
