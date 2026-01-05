@@ -181,7 +181,7 @@ class GooglePhotosService {
           const { exifData, coordinates } = cloudinaryService.extractExifData(photoBuffer);
 
           // Upload to Cloudinary
-          const cloudinaryResult = await cloudinaryService.uploadPhoto(photoBuffer, {
+          const cloudinaryResult = await cloudinaryService.uploadMedia(photoBuffer, {
             folder: `${process.env.CLOUDINARY_FOLDER}/users/${userId}/google-photos`
           });
 

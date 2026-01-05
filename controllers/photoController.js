@@ -10,7 +10,7 @@ const geocodingService = require('../services/geocodingService');
  * Upload single photo
  * POST /api/photos/upload
  */
-// exports.uploadPhoto = async (req, res) => {
+// exports.uploadMedia = async (req, res) => {
 //   try {
 //     if (!req.file) {
 //       return res.status(400).json({
@@ -43,7 +43,7 @@ const geocodingService = require('../services/geocodingService');
 //     const { exifData } = cloudinaryService.extractExifData(fileBuffer);
 
 //     // Upload to Cloudinary
-//     const cloudinaryResult = await cloudinaryService.uploadPhoto(fileBuffer, {
+//     const cloudinaryResult = await cloudinaryService.uploadMedia(fileBuffer, {
 //       folder: `${process.env.CLOUDINARY_FOLDER}/users/${userId}`
 //     });
 

@@ -106,13 +106,18 @@ exports.uploadProfilePhoto = async (req, res) => {
     }
 
     // Upload new photo
-    const result = await cloudinaryService.uploadPhoto(req.file.buffer, {
-      folder: `${process.env.CLOUDINARY_FOLDER}/profiles`,
-      transformation: [
-        { width: 400, height: 400, crop: 'fill' },
-        { quality: 'auto:good' }
-      ]
-    });
+    const result = await cloudinaryService.uploadPhoto(
+  req.file.buffer,
+  req.file.mimetype,
+  {
+    folder: `${process.env.CLOUDINARY_FOLDER}/profiles`,
+    transformation: [
+      { width: 400, height: 400, crop: 'fill' },
+      { quality: 'auto:good' }
+    ]
+  }
+);
+
 
     // Update user
     const user = await User.findByIdAndUpdate(

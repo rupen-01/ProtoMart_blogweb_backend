@@ -1,17 +1,42 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const authController = require('../controllers/authController');
-const { protect } = require('../middlewares/authMiddleware');
+const passport = require("passport");
+const authController = require("../controllers/authController");
+const { protect } = require("../middlewares/authMiddleware");
 
-// Public routes
-router.post('/register', authController.register);
-router.post('/login', authController.login);
-router.get('/verify-email/:token', authController.verifyEmail);
-router.post('/forgot-password', authController.forgotPassword);
-router.post('/reset-password/:token', authController.resetPassword);
-router.post('/refresh-token', authController.refreshToken);
+// ====================
+// Normal Auth Routes
+// ====================
+router.post("/register", authController.register);
+router.post("/login", authController.login);
+router.get("/verify-email/:token", authController.verifyEmail);
+router.post("/forgot-password", authController.forgotPassword);
+router.post("/reset-password/:token", authController.resetPassword);
+router.post("/refresh-token", authController.refreshToken);
 
-// Protected routes
-router.get('/me', protect, authController.getMe);
+// ====================
+// Google Auth Routes
+// ====================
+router.get("/google", (req, res, next) => {
+  console.log("Google auth route hit");
+  next();
+}, passport.authenticate("google", {
+  scope: ["profile", "email"]
+}));
+
+
+router.get(
+  "/google/callback",
+  passport.authenticate("google", {
+    session: false,
+    failureRedirect: `${process.env.FRONTEND_URL}/login`
+  }),
+  authController.googleAuthSuccess
+);
+
+// ====================
+// Protected Routes
+// ====================
+router.get("/me", protect, authController.getMe);
 
 module.exports = router;

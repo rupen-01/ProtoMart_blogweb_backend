@@ -1,18 +1,15 @@
-const User = require('../models/User');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const emailService = require('../services/emailService');
-const geocodingService = require('../services/geocodingService');
-const dotenv = require('dotenv');
-
-dotenv.config();
+const User = require("../models/User");
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const emailService = require("../services/emailService");
+const geocodingService = require("../services/geocodingService");
 
 /**
  * Generate JWT Token
  */
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE
+    expiresIn: process.env.JWT_EXPIRE,
   });
 };
 
@@ -21,394 +18,298 @@ const generateToken = (id) => {
  */
 const generateRefreshToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_REFRESH_SECRET, {
-    expiresIn: process.env.JWT_REFRESH_EXPIRE
+    expiresIn: process.env.JWT_REFRESH_EXPIRE,
   });
 };
 
 /**
- * Register new user
- * POST /api/auth/register
+ * =========================
+ * REGISTER
+ * =========================
  */
 exports.register = async (req, res) => {
   try {
     const { name, email, password, phone, dateOfBirth, pinCode } = req.body;
+    const normalizedEmail = email.toLowerCase();
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'User already exists with this email'
+        message: "User already exists with this email",
       });
     }
 
-    // Get address from pin code
     let addressData = {};
     if (pinCode) {
-      const pinCodeDetails = await geocodingService.getPinCodeDetails(pinCode);
-      if (pinCodeDetails) {
+      const pinData = await geocodingService.getPinCodeDetails(pinCode);
+      if (pinData) {
         addressData = {
-          fullAddress: pinCodeDetails.fullAddress,
-          city: pinCodeDetails.city,
-          state: pinCodeDetails.state,
-          country: pinCodeDetails.country
+          fullAddress: pinData.fullAddress,
+          city: pinData.city,
+          state: pinData.state,
+          country: pinData.country,
         };
       }
     }
 
-    // Create user
     const user = await User.create({
       name,
-      email,
+      email: normalizedEmail,
       password,
       phone,
       dateOfBirth,
       pinCode,
-      address: addressData
+      address: addressData,
     });
 
-    // Generate email verification token
-    const verificationToken = crypto.randomBytes(20).toString('hex');
-        console.log('Verification Token:', verificationToken);
+    const verificationToken = crypto.randomBytes(20).toString("hex");
 
     user.emailVerificationToken = crypto
-      .createHash('sha256')
+      .createHash("sha256")
       .update(verificationToken)
-      .digest('hex');
+      .digest("hex");
+
     await user.save();
 
-    // Send verification email
-    try {
-      await emailService.sendVerificationEmail(email, name, verificationToken);
-    } catch (emailError) {
-      console.error('Failed to send verification email:', emailError);
-    }
-
-    // Generate tokens
-    const token = generateToken(user._id);
-    const refreshToken = generateRefreshToken(user._id);
+    await emailService.sendVerificationEmail(
+      user.email,
+      user.name,
+      verificationToken
+    );
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully. Please verify your email.',
-      data: {
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          dateOfBirth: user.dateOfBirth,
-          pinCode: user.pinCode,
-          address: user.address,
-          walletBalance: user.walletBalance,
-          isEmailVerified: user.isEmailVerified
-        },
-        token,
-        refreshToken
-      }
+      message: "User registered successfully. Please verify your email.",
     });
-
   } catch (error) {
-    console.error('Register error:', error);
     res.status(500).json({
       success: false,
-      message: 'Registration failed',
-      error: error.message
+      message: "Registration failed",
+      error: error.message,
     });
   }
 };
 
 /**
- * Login user
- * POST /api/auth/login
+ * =========================
+ * LOGIN
+ * =========================
  */
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validate input
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide email and password'
-      });
-    }
+    const user = await User.findOne({
+      email: email.toLowerCase(),
+    }).select("+password");
 
-    // Check user exists
-    const user = await User.findOne({ email }).select('+password');
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid credentials'
+        message: "Invalid credentials",
       });
     }
 
-    // Check if account is active
-    if (!user.isActive) {
+    if (user.provider === "google") {
+      return res.status(400).json({
+        success: false,
+        message: "Please login using Google",
+      });
+    }
+
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: 'Account has been deactivated. Please contact support.'
+        message: "Invalid credentials",
       });
     }
 
-    // Check password
-    const isPasswordMatch = await user.matchPassword(password);
-    if (!isPasswordMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
-    }
-
-    // Generate tokens
     const token = generateToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
 
     res.json({
       success: true,
-      message: 'Login successful',
       data: {
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          profilePhoto: user.profilePhoto,
-          dateOfBirth: user.dateOfBirth,
-          pinCode: user.pinCode,
-          address: user.address,
-          walletBalance: user.walletBalance,
-          isEmailVerified: user.isEmailVerified,
-          role: user.role
-        },
+        user,
         token,
-        refreshToken
-      }
+        refreshToken,
+      },
     });
-
   } catch (error) {
-    console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      message: 'Login failed',
-      error: error.message
+      message: "Login failed",
+      error: error.message,
     });
   }
 };
 
 /**
- * Get current user profile
- * GET /api/auth/me
+ * =========================
+ * GOOGLE AUTH SUCCESS
+ * =========================
+ */
+exports.googleAuthSuccess = async (req, res) => {
+  try {
+    const user = req.user;
+
+    if (!user) {
+      return res.redirect(
+        `${process.env.FRONTEND_URL}/login?error=google_failed`
+      );
+    }
+
+    const token = generateToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
+
+    res.redirect(
+      `${process.env.FRONTEND_URL}/google-auth-success?token=${token}&refreshToken=${refreshToken}`
+    );
+  } catch (error) {
+    res.redirect(
+      `${process.env.FRONTEND_URL}/login?error=server_error`
+    );
+  }
+};
+
+/**
+ * =========================
+ * GET ME
+ * =========================
  */
 exports.getMe = async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id);
-
-    res.json({
-      success: true,
-      data: user
-    });
-  } catch (error) {
-    console.error('Get me error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch user profile',
-      error: error.message
-    });
-  }
+  const user = await User.findById(req.user._id);
+  res.json({ success: true, data: user });
 };
 
 /**
- * Verify email
- * GET /api/auth/verify-email/:token
+ * =========================
+ * VERIFY EMAIL
+ * =========================
  */
 exports.verifyEmail = async (req, res) => {
-  try {
-    const verificationToken = req.params.token;
+  const hashedToken = crypto
+    .createHash("sha256")
+    .update(req.params.token)
+    .digest("hex");
 
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(verificationToken)
-      .digest('hex');
+  const user = await User.findOne({
+    emailVerificationToken: hashedToken,
+  });
 
-    const user = await User.findOne({
-      emailVerificationToken: hashedToken
-    });
-
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid or expired verification token'
-      });
-    }
-
-    user.isEmailVerified = true;
-    user.emailVerificationToken = undefined;
-    await user.save();
-
-    res.json({
-      success: true,
-      message: 'Email verified successfully'
-    });
-
-  } catch (error) {
-    console.error('Email verification error:', error);
-    res.status(500).json({
+  if (!user) {
+    return res.status(400).json({
       success: false,
-      message: 'Email verification failed',
-      error: error.message
+      message: "Invalid or expired token",
     });
   }
+
+  user.isEmailVerified = true;
+  user.emailVerificationToken = undefined;
+  await user.save();
+
+  res.json({
+    success: true,
+    message: "Email verified successfully",
+  });
 };
 
 /**
- * Forgot password
- * POST /api/auth/forgot-password
+ * =========================
+ * FORGOT PASSWORD
+ * =========================
  */
 exports.forgotPassword = async (req, res) => {
-  try {
-    const { email } = req.body;
+  const user = await User.findOne({ email: req.body.email.toLowerCase() });
 
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found with this email'
-      });
-    }
-
-    // Generate reset token
-    const resetToken = crypto.randomBytes(20).toString('hex');
-
-    user.resetPasswordToken = crypto
-      .createHash('sha256')
-      .update(resetToken)
-      .digest('hex');
-    user.resetPasswordExpire = Date.now() + 30 * 60 * 1000; // 30 minutes
-
-    await user.save();
-
-    // Send reset email
-    await emailService.sendPasswordResetEmail(email, user.name, resetToken);
-
-    res.json({
-      success: true,
-      message: 'Password reset link sent to your email'
-    });
-
-  } catch (error) {
-    console.error('Forgot password error:', error);
-    res.status(500).json({
+  if (!user) {
+    return res.status(404).json({
       success: false,
-      message: 'Failed to process forgot password request',
-      error: error.message
+      message: "User not found",
     });
   }
+
+  const resetToken = crypto.randomBytes(20).toString("hex");
+
+  user.resetPasswordToken = crypto
+    .createHash("sha256")
+    .update(resetToken)
+    .digest("hex");
+
+  user.resetPasswordExpire = Date.now() + 30 * 60 * 1000;
+  await user.save();
+
+  await emailService.sendPasswordResetEmail(
+    user.email,
+    user.name,
+    resetToken
+  );
+
+  res.json({
+    success: true,
+    message: "Password reset link sent to email",
+  });
 };
 
 /**
- * Reset password
- * POST /api/auth/reset-password/:token
+ * =========================
+ * RESET PASSWORD
+ * =========================
  */
 exports.resetPassword = async (req, res) => {
-  try {
-    const resetToken = req.params.token;
-    const { password } = req.body;
+  const hashedToken = crypto
+    .createHash("sha256")
+    .update(req.params.token)
+    .digest("hex");
 
-    if (!password || password.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: 'Password must be at least 6 characters'
-      });
-    }
+  const user = await User.findOne({
+    resetPasswordToken: hashedToken,
+    resetPasswordExpire: { $gt: Date.now() },
+  });
 
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(resetToken)
-      .digest('hex');
-
-    const user = await User.findOne({
-      resetPasswordToken: hashedToken,
-      resetPasswordExpire: { $gt: Date.now() }
-    });
-
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid or expired reset token'
-      });
-    }
-
-    user.password = password;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpire = undefined;
-    await user.save();
-
-    res.json({
-      success: true,
-      message: 'Password reset successful'
-    });
-
-  } catch (error) {
-    console.error('Reset password error:', error);
-    res.status(500).json({
+  if (!user) {
+    return res.status(400).json({
       success: false,
-      message: 'Password reset failed',
-      error: error.message
+      message: "Invalid or expired token",
     });
   }
+
+  user.password = req.body.password;
+  user.resetPasswordToken = undefined;
+  user.resetPasswordExpire = undefined;
+  await user.save();
+
+  res.json({
+    success: true,
+    message: "Password reset successful",
+  });
 };
 
 /**
- * Refresh token
- * POST /api/auth/refresh-token
+ * =========================
+ * REFRESH TOKEN
+ * =========================
  */
 exports.refreshToken = async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const decoded = jwt.verify(
+      req.body.refreshToken,
+      process.env.JWT_REFRESH_SECRET
+    );
 
-    if (!refreshToken) {
-      return res.status(400).json({
-        success: false,
-        message: 'Refresh token is required'
-      });
-    }
+    const token = generateToken(decoded.id);
+    const refreshToken = generateRefreshToken(decoded.id);
 
-    try {
-      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-      
-      const user = await User.findById(decoded.id);
-      if (!user) {
-        return res.status(401).json({
-          success: false,
-          message: 'User not found'
-        });
-      }
-
-      const newToken = generateToken(user._id);
-      const newRefreshToken = generateRefreshToken(user._id);
-
-      res.json({
-        success: true,
-        data: {
-          token: newToken,
-          refreshToken: newRefreshToken
-        }
-      });
-
-    } catch (error) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired refresh token'
-      });
-    }
-
-  } catch (error) {
-    console.error('Refresh token error:', error);
-    res.status(500).json({
+    res.json({
+      success: true,
+      data: { token, refreshToken },
+    });
+  } catch {
+    res.status(401).json({
       success: false,
-      message: 'Token refresh failed',
-      error: error.message
+      message: "Invalid refresh token",
     });
   }
 };

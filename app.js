@@ -12,6 +12,10 @@ const placeRoutes = require('./routes/placeRoutes');
 const blogRoutes = require('./routes/blogRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const googlePhotosRoutes = require('./routes/googlePhotosRoutes');
+const dotenv = require('dotenv');
+dotenv.config({ path: './config/config.env' });
+const passport = require("passport")
+require("./config/passport");
 
 // Import middlewares
 const errorHandler = require('./middlewares/errorHandler');
@@ -20,6 +24,7 @@ const app = express();
 
 // Security middleware
 app.use(helmet());
+app.use(passport.initialize());
 
 // CORS configuration
 app.use(cors({
