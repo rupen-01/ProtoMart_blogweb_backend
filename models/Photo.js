@@ -115,7 +115,7 @@ const photoSchema = new mongoose.Schema({
 photoSchema.index({ userId: 1, approvalStatus: 1 });
 photoSchema.index({ placeId: 1, approvalStatus: 1 });
 photoSchema.index({ approvalStatus: 1, createdAt: -1 });
-photoSchema.index({ 'location.coordinates': '2dsphere' });
+photoSchema.index({ 'location': '2dsphere' });
 photoSchema.index({ cloudinaryId: 1 });
 
 module.exports = mongoose.model('Photo', photoSchema);

@@ -8,8 +8,8 @@ const upload = require('../middlewares/uploadMiddleware');
 router.get('/my-photos', protect, photoController.getMyPhotos);
 router.get('/', optionalAuth, photoController.getPhotos);
 router.get('/nearby', optionalAuth, photoController.getNearbyPhotos);
+router.get('/places-with-photos', optionalAuth, photoController.getPlacesWithPhotos);
 router.get('/:id', optionalAuth, photoController.getPhoto);
-
 // Protected routes
 router.post('/upload', protect, upload.array('photo'), photoController.bulkUpload);
 router.delete('/:id', protect, photoController.deletePhoto);

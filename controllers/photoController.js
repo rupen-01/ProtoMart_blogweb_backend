@@ -158,6 +158,87 @@ exports.bulkUpload = async (req, res) => {
     const userId = req.user._id;
     const uploadedPhotos = [];
 
+    // Get coordinates from request
+    const latitude = parseFloat(req.body.latitude);
+    const longitude = parseFloat(req.body.longitude);
+
+    let placeId = null;
+    let locationData = null;
+
+    // If coordinates provided, find or create place
+    if (latitude && longitude) {
+      const coordinates = [longitude, latitude]; // GeoJSON format
+
+      // Search for existing place within 500 meters (0.5km)
+      let place = await Place.findOne({
+        location: {
+          $near: {
+            $geometry: {
+              type: 'Point',
+              coordinates: coordinates
+            },
+            $maxDistance: 500 // 500 meters radius
+          }
+        }
+      });
+
+      // If no nearby place found, create new one
+      if (!place) {
+        try {
+          // Get location details from reverse geocoding
+          locationData = await geocodingService.reverseGeocode(latitude, longitude);
+
+          if (locationData) {
+            place = await Place.create({
+              name: locationData.placeName || `Location at ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+              location: {
+                type: 'Point',
+                coordinates: coordinates
+              },
+              city: locationData.city,
+              state: locationData.state,
+              country: locationData.country,
+              photoCount: 0
+            });
+          } else {
+            // Fallback if geocoding fails
+            place = await Place.create({
+              name: `Location at ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+              location: {
+                type: 'Point',
+                coordinates: coordinates
+              },
+              country: 'Unknown',
+              photoCount: 0
+            });
+          }
+        } catch (geoError) {
+          console.error('Geocoding error:', geoError);
+          // Create place without detailed location data
+          place = await Place.create({
+            name: `Location at ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+            location: {
+              type: 'Point',
+              coordinates: coordinates
+            },
+            country: 'Unknown',
+            photoCount: 0
+          });
+        }
+      }
+
+      placeId = place._id;
+
+      // Use place's location data for photos
+      locationData = {
+        placeName: place.name,
+        city: place.city,
+        state: place.state,
+        country: place.country
+      };
+    }
+
+    // Upload each file
     for (const file of req.files) {
       const cloudResult = await cloudinaryService.uploadMedia(
         file.buffer,
@@ -167,7 +248,7 @@ exports.bulkUpload = async (req, res) => {
         }
       );
 
-      const photo = await Photo.create({
+      const photoData = {
         userId,
         cloudinaryId: cloudResult.public_id,
         originalUrl: cloudResult.secure_url,
@@ -176,16 +257,44 @@ exports.bulkUpload = async (req, res) => {
         mimeType: file.mimetype,
         mediaType: file.mimetype.startsWith('video') ? 'video' : 'image',
         source: 'bulk_upload'
-      });
+      };
 
+      // Add location data if available
+      if (latitude && longitude) {
+        photoData.location = {
+          type: 'Point',
+          coordinates: [longitude, latitude]
+        };
+        
+        if (placeId) {
+          photoData.placeId = placeId;
+        }
+        
+        if (locationData) {
+          photoData.placeName = locationData.placeName;
+          photoData.city = locationData.city;
+          photoData.state = locationData.state;
+          photoData.country = locationData.country;
+        }
+      }
+
+      const photo = await Photo.create(photoData);
       uploadedPhotos.push(photo);
+    }
+
+    // Update place photo count
+    if (placeId) {
+      await Place.findByIdAndUpdate(placeId, {
+        $inc: { photoCount: uploadedPhotos.length }
+      });
     }
 
     res.status(201).json({
       success: true,
-      message: 'upload successful',
+      message: 'Upload successful',
       count: uploadedPhotos.length,
-      data: uploadedPhotos
+      data: uploadedPhotos,
+      place: placeId ? await Place.findById(placeId) : null
     });
 
   } catch (error) {
@@ -321,6 +430,76 @@ exports.getPhotos = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch photos',
+      error: error.message
+    });
+  }
+};
+
+exports.getPlacesWithPhotos = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 100,
+      status = 'approved'
+    } = req.query;
+
+    // Aggregate photos by placeId
+    const placesWithPhotos = await Photo.aggregate([
+      {
+        $match: {
+          approvalStatus: status,
+          placeId: { $exists: true, $ne: null },
+          location: { $exists: true, $ne: null }
+        }
+      },
+      {
+        $group: {
+          _id: '$placeId',
+          photoCount: { $sum: 1 },
+          photos: { $push: '$$ROOT' },
+          location: { $first: '$location' },
+          placeName: { $first: '$placeName' },
+          city: { $first: '$city' },
+          state: { $first: '$state' },
+          country: { $first: '$country' }
+        }
+      },
+      {
+        $lookup: {
+          from: 'places',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'placeDetails'
+        }
+      },
+      {
+        $project: {
+          placeId: '$_id',
+          photoCount: 1,
+          location: 1,
+          placeName: 1,
+          city: 1,
+          state: 1,
+          country: 1,
+          photos: { $slice: ['$photos', 5] }, // First 5 photos per place
+          placeDetails: { $arrayElemAt: ['$placeDetails', 0] }
+        }
+      },
+      { $skip: (page - 1) * parseInt(limit) },
+      { $limit: parseInt(limit) }
+    ]);
+
+    res.json({
+      success: true,
+      data: placesWithPhotos,
+      count: placesWithPhotos.length
+    });
+
+  } catch (error) {
+    console.error('Get places with photos error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch places with photos',
       error: error.message
     });
   }
