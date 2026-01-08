@@ -176,3 +176,73 @@ exports.getPlacePhotos = async (req, res) => {
     });
   }
 };
+
+exports.getPlacesHierarchy = async (req, res) => {
+  try {
+    const hierarchy = await Place.aggregate([
+      {
+        $match: { photoCount: { $gt: 0 } } // Only places with photos
+      },
+      {
+        $group: {
+          _id: {
+            country: '$country',
+            state: '$state',
+            city: '$city'
+          },
+          places: {
+            $push: {
+              _id: '$_id',
+              name: '$name',
+              photoCount: '$photoCount',
+              coverPhoto: '$coverPhoto'
+            }
+          },
+          totalPhotos: { $sum: '$photoCount' }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            country: '$_id.country',
+            state: '$_id.state'
+          },
+          cities: {
+            $push: {
+              city: '$_id.city',
+              places: '$places',
+              totalPhotos: '$totalPhotos'
+            }
+          },
+          stateTotalPhotos: { $sum: '$totalPhotos' }
+        }
+      },
+      {
+        $group: {
+          _id: '$_id.country',
+          states: {
+            $push: {
+              state: '$_id.state',
+              cities: '$cities',
+              totalPhotos: '$stateTotalPhotos'
+            }
+          },
+          countryTotalPhotos: { $sum: '$stateTotalPhotos' }
+        }
+      },
+      { $sort: { countryTotalPhotos: -1 } }
+    ]);
+
+    res.json({
+      success: true,
+      data: hierarchy
+    });
+  } catch (error) {
+    console.error('Get hierarchy error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch hierarchy',
+      error: error.message
+    });
+  }
+};
