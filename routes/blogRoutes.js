@@ -2,17 +2,16 @@ const express = require("express");
 const router = express.Router();
 
 const blogController = require("../controllers/blogController");
-const {protect} = require("../middlewares/authMiddleware"); 
-// ↑ same middleware jo req.user set karta hai
+const { protect } = require("../middlewares/authMiddleware");
+const upload = require("../middlewares/uploadMiddleware");
 
 // ============================
-// Public Routes
+// PUBLIC ROUTES (NO LOGIN)
 // ============================
 
 /**
  * Get all published blogs
  * GET /api/blogs
- * ?page=&limit=&status=&search=
  */
 router.get("/", blogController.getBlogs);
 
@@ -22,21 +21,9 @@ router.get("/", blogController.getBlogs);
  */
 router.get("/place/:placeId", blogController.getBlogsByPlace);
 
-/**
- * Get blog by ID
- * GET /api/blogs/:id
- */
-router.get("/:id", blogController.getBlogById);
-
 // ============================
-// Protected Routes (Login Required)
+// PROTECTED ROUTES (LOGIN REQUIRED)
 // ============================
-
-/**
- * Create new blog
- * POST /api/blogs
- */
-router.post("/", protect, blogController.createBlog);
 
 /**
  * Get logged-in user's blogs
@@ -45,21 +32,43 @@ router.post("/", protect, blogController.createBlog);
 router.get("/my/blogs", protect, blogController.getMyBlogs);
 
 /**
- * Update blog
- * PUT /api/blogs/:id
+ * Create new blog (Direct Publish supported)
+ * POST /api/blogs
  */
-router.put("/:id", protect, blogController.updateBlog);
+router.post(
+  "/",
+  protect,
+  upload.array("coverImages", 5),
+  blogController.createBlog
+);
 
 /**
- * Delete blog
+ * Update blog (ONLY OWNER)
+ * PUT /api/blogs/:id
+ */
+router.put(
+  "/:id",
+  protect,
+  upload.array("coverImages", 5),
+  blogController.updateBlog
+);
+
+/**
+ * Delete blog (ONLY OWNER)
  * DELETE /api/blogs/:id
  */
 router.delete("/:id", protect, blogController.deleteBlog);
 
 /**
- * Publish blog
+ * Publish blog (ONLY OWNER)
  * POST /api/blogs/:id/publish
  */
 router.post("/:id/publish", protect, blogController.publishBlog);
+
+/**
+ * Get blog by ID (LAST ME RAKHNA HAI)
+ * GET /api/blogs/:id
+ */
+router.get("/:id", blogController.getBlogById);
 
 module.exports = router;
