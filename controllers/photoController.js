@@ -5,150 +5,181 @@ const Transaction = require('../models/Transaction');
 const WatermarkSetting = require('../models/WatermarkSetting');
 const cloudinaryService = require('../services/cloudinaryService');
 const geocodingService = require('../services/geocodingService');
+const { normalizeCoordinates } = require('../utils/geo.util');
 
 /**
- * Upload single photo
- * POST /api/photos/upload
+ * Bulk upload images & videos
+ * POST /api/photos/upload/bulk
  */
-// exports.uploadMedia = async (req, res) => {
+// exports.bulkUpload = async (req, res) => {
 //   try {
-//     if (!req.file) {
+//     if (!req.files || req.files.length === 0) {
 //       return res.status(400).json({
 //         success: false,
-//         message: 'Please upload a photo'
+//         message: 'Please upload files'
 //       });
 //     }
 
 //     const userId = req.user._id;
-//     const fileBuffer = req.file.buffer;
-    
-//     // Get manual coordinates from request body (from map click)
-//     const manualLat = req.body.latitude;
-//     const manualLng = req.body.longitude;
-    
-//     let coordinates = null;
-    
-//     // Prioritize manual coordinates over EXIF
-//     if (manualLat && manualLng) {
-//       coordinates = [parseFloat(manualLng), parseFloat(manualLat)];
-//     } else {
-//       // Only use EXIF if no manual coordinates provided
-//       const exifResult = cloudinaryService.extractExifData(fileBuffer);
-//       if (exifResult.coordinates && exifResult.coordinates[0] && exifResult.coordinates[1]) {
-//         coordinates = exifResult.coordinates;
-//       }
-//     }
+//     const uploadedPhotos = [];
 
-//     // Extract EXIF data (without coordinates)
-//     const { exifData } = cloudinaryService.extractExifData(fileBuffer);
+//     // Get coordinates from request
+//     const latitude = parseFloat(req.body.latitude);
+//     const longitude = parseFloat(req.body.longitude);
 
-//     // Upload to Cloudinary
-//     const cloudinaryResult = await cloudinaryService.uploadMedia(fileBuffer, {
-//       folder: `${process.env.CLOUDINARY_FOLDER}/users/${userId}`
-//     });
+//     let placeId = null;
+//     let locationData = null;
 
-//     // Prepare photo data
-//     const photoData = {
-//       userId,
-//       cloudinaryId: cloudinaryResult.public_id,
-//       originalUrl: cloudinaryResult.secure_url,
-//       fileName: req.file.originalname,
-//       fileSize: cloudinaryResult.bytes,
-//       dimensions: {
-//         width: cloudinaryResult.width,
-//         height: cloudinaryResult.height
-//       },
-//       mimeType: req.file.mimetype,
-//       exifData,
-//       source: 'direct_upload'
-//     };
+//     // If coordinates provided, find or create place
+//     if (latitude && longitude) {
+//       const coordinates = [longitude, latitude]; // GeoJSON format
 
-//     // If coordinates exist (manual or EXIF), process location
-//     if (coordinates && coordinates[0] && coordinates[1]) {
-//       photoData.location = {
-//         type: 'Point',
-//         coordinates: coordinates
-//       };
+//       // Search for existing place within 500 meters (0.5km)
+//       let place = await Place.findOne({
+//         location: {
+//           $near: {
+//             $geometry: {
+//               type: 'Point',
+//               coordinates: coordinates
+//             },
+//             $maxDistance: 500 // 500 meters radius
+//           }
+//         }
+//       });
 
-//       try {
-//         const locationData = await geocodingService.reverseGeocode(
-//           coordinates[1], // latitude
-//           coordinates[0]  // longitude
-//         );
+//       // If no nearby place found, create new one
+//       if (!place) {
+//         try {
+//           // Get location details from reverse geocoding
+//           locationData = await geocodingService.reverseGeocode(latitude, longitude);
 
-//         if (locationData) {
-//           photoData.placeName = locationData.placeName;
-//           photoData.city = locationData.city;
-//           photoData.state = locationData.state;
-//           photoData.country = locationData.country;
-
-//           // Find or create Place
-//           let place = await Place.findOne({
-//             name: locationData.placeName,
-//             'location.coordinates': {
-//               $near: {
-//                 $geometry: {
-//                   type: 'Point',
-//                   coordinates: coordinates
-//                 },
-//                 $maxDistance: 1000 // 1km radius
-//               }
-//             }
-//           });
-
-//           if (!place) {
+//           if (locationData) {
 //             place = await Place.create({
-//               name: locationData.placeName,
+//               name: locationData.placeName || `Location at ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
 //               location: {
 //                 type: 'Point',
 //                 coordinates: coordinates
 //               },
 //               city: locationData.city,
 //               state: locationData.state,
-//               country: locationData.country
+//               country: locationData.country,
+//               photoCount: 0
+//             });
+//           } else {
+//             // Fallback if geocoding fails
+//             place = await Place.create({
+//               name: `Location at ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+//               location: {
+//                 type: 'Point',
+//                 coordinates: coordinates
+//               },
+//               country: 'Unknown',
+//               photoCount: 0
 //             });
 //           }
-
-//           photoData.placeId = place._id;
+//         } catch (geoError) {
+//           console.error('Geocoding error:', geoError);
+//           // Create place without detailed location data
+//           place = await Place.create({
+//             name: `Location at ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+//             location: {
+//               type: 'Point',
+//               coordinates: coordinates
+//             },
+//             country: 'Unknown',
+//             photoCount: 0
+//           });
 //         }
-//       } catch (geoError) {
-//         console.error('Geocoding error:', geoError);
-//         // Continue without location data
 //       }
+
+//       placeId = place._id;
+
+//       // Use place's location data for photos
+//       locationData = {
+//         placeName: place.name,
+//         city: place.city,
+//         state: place.state,
+//         country: place.country
+//       };
 //     }
 
-//     // Create photo record
-//     const photo = await Photo.create(photoData);
+//     // Upload each file
+//     for (const file of req.files) {
+//       const cloudResult = await cloudinaryService.uploadMedia(
+//         file.buffer,
+//         file.mimetype,
+//         {
+//           folder: `${process.env.CLOUDINARY_FOLDER}/users/${userId}`
+//         }
+//       );
 
-//     // Populate user and place data
-//     await photo.populate('userId', 'name email profilePhoto');
-//     if (photo.placeId) {
-//       await photo.populate('placeId', 'name city state country');
+//       const photoData = {
+//         userId,
+//         cloudinaryId: cloudResult.public_id,
+//         originalUrl: cloudResult.secure_url,
+//         fileName: file.originalname,
+//         fileSize: cloudResult.bytes,
+//         mimeType: file.mimetype,
+//         mediaType: file.mimetype.startsWith('video') ? 'video' : 'image',
+//         source: 'bulk_upload'
+//       };
+
+//       // Add location data if available
+//       if (latitude && longitude) {
+//         photoData.location = {
+//           type: 'Point',
+//           coordinates: [longitude, latitude]
+//         };
+        
+//         if (placeId) {
+//           photoData.placeId = placeId;
+//         }
+        
+//         if (locationData) {
+//           photoData.placeName = locationData.placeName;
+//           photoData.city = locationData.city;
+//           photoData.state = locationData.state;
+//           photoData.country = locationData.country;
+//         }
+//       }
+
+//       const photo = await Photo.create(photoData);
+//       uploadedPhotos.push(photo);
+//     }
+
+//     // Update place photo count
+//     if (placeId) {
+//       await Place.findByIdAndUpdate(placeId, {
+//         $inc: { photoCount: uploadedPhotos.length }
+//       });
 //     }
 
 //     res.status(201).json({
 //       success: true,
-//       message: 'Photo uploaded successfully. Waiting for approval.',
-//       data: photo
+//       message: 'Upload successful',
+//       count: uploadedPhotos.length,
+//       data: uploadedPhotos,
+//       place: placeId ? await Place.findById(placeId) : null
 //     });
 
 //   } catch (error) {
-//     console.error('Photo upload error:', error);
+//     console.error('Bulk upload error:', error);
 //     res.status(500).json({
 //       success: false,
-//       message: 'Failed to upload photo',
+//       message: 'Bulk upload failed',
 //       error: error.message
 //     });
 //   }
 // };
 
+
+
 /**
  * Bulk upload images & videos
- * POST /api/photos/upload/bulk
  */
 exports.bulkUpload = async (req, res) => {
   try {
-    if (!req.files || req.files.length === 0) {
+    if (!Array.isArray(req.files) || req.files.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'Please upload files'
@@ -158,78 +189,45 @@ exports.bulkUpload = async (req, res) => {
     const userId = req.user._id;
     const uploadedPhotos = [];
 
-    // Get coordinates from request
-    const latitude = parseFloat(req.body.latitude);
-    const longitude = parseFloat(req.body.longitude);
+    const coordinates = normalizeCoordinates(
+      req.body.latitude,
+      req.body.longitude
+    );
 
-    let placeId = null;
+    let place = null;
     let locationData = null;
 
-    // If coordinates provided, find or create place
-    if (latitude && longitude) {
-      const coordinates = [longitude, latitude]; // GeoJSON format
-
-      // Search for existing place within 500 meters (0.5km)
-      let place = await Place.findOne({
+    // -------- LOCATION LOGIC --------
+    if (coordinates) {
+      place = await Place.findOne({
         location: {
           $near: {
-            $geometry: {
-              type: 'Point',
-              coordinates: coordinates
-            },
-            $maxDistance: 500 // 500 meters radius
+            $geometry: { type: 'Point', coordinates },
+            $maxDistance: 500
           }
         }
       });
 
-      // If no nearby place found, create new one
       if (!place) {
         try {
-          // Get location details from reverse geocoding
-          locationData = await geocodingService.reverseGeocode(latitude, longitude);
+          locationData = await geocodingService.reverseGeocode(
+            coordinates[1],
+            coordinates[0]
+          );
+        } catch {}
 
-          if (locationData) {
-            place = await Place.create({
-              name: locationData.placeName || `Location at ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
-              location: {
-                type: 'Point',
-                coordinates: coordinates
-              },
-              city: locationData.city,
-              state: locationData.state,
-              country: locationData.country,
-              photoCount: 0
-            });
-          } else {
-            // Fallback if geocoding fails
-            place = await Place.create({
-              name: `Location at ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
-              location: {
-                type: 'Point',
-                coordinates: coordinates
-              },
-              country: 'Unknown',
-              photoCount: 0
-            });
-          }
-        } catch (geoError) {
-          console.error('Geocoding error:', geoError);
-          // Create place without detailed location data
-          place = await Place.create({
-            name: `Location at ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
-            location: {
-              type: 'Point',
-              coordinates: coordinates
-            },
-            country: 'Unknown',
-            photoCount: 0
-          });
-        }
+        place = await Place.create({
+          name:
+            locationData?.placeName ||
+            `Location ${coordinates[1].toFixed(4)}, ${coordinates[0].toFixed(4)}`,
+          location: { type: 'Point', coordinates },
+          city: locationData?.city,
+          state: locationData?.state,
+          country: locationData?.country || 'Unknown',
+          photoCount: 0
+        });
       }
 
-      placeId = place._id;
-
-      // Use place's location data for photos
       locationData = {
         placeName: place.name,
         city: place.city,
@@ -238,9 +236,9 @@ exports.bulkUpload = async (req, res) => {
       };
     }
 
-    // Upload each file
+    // -------- FILE UPLOAD --------
     for (const file of req.files) {
-      const cloudResult = await cloudinaryService.uploadMedia(
+      const cloud = await cloudinaryService.uploadMedia(
         file.buffer,
         file.mimetype,
         {
@@ -250,59 +248,42 @@ exports.bulkUpload = async (req, res) => {
 
       const photoData = {
         userId,
-        cloudinaryId: cloudResult.public_id,
-        originalUrl: cloudResult.secure_url,
+        cloudinaryId: cloud.public_id,
+        originalUrl: cloud.secure_url,
         fileName: file.originalname,
-        fileSize: cloudResult.bytes,
+        fileSize: cloud.bytes,
         mimeType: file.mimetype,
         mediaType: file.mimetype.startsWith('video') ? 'video' : 'image',
         source: 'bulk_upload'
       };
 
-      // Add location data if available
-      if (latitude && longitude) {
-        photoData.location = {
-          type: 'Point',
-          coordinates: [longitude, latitude]
-        };
-        
-        if (placeId) {
-          photoData.placeId = placeId;
-        }
-        
-        if (locationData) {
-          photoData.placeName = locationData.placeName;
-          photoData.city = locationData.city;
-          photoData.state = locationData.state;
-          photoData.country = locationData.country;
-        }
+      if (coordinates) {
+        photoData.location = { type: 'Point', coordinates };
+        photoData.placeId = place._id;
+        Object.assign(photoData, locationData);
       }
 
-      const photo = await Photo.create(photoData);
-      uploadedPhotos.push(photo);
+      uploadedPhotos.push(await Photo.create(photoData));
     }
 
-    // Update place photo count
-    if (placeId) {
-      await Place.findByIdAndUpdate(placeId, {
+    if (place) {
+      await Place.findByIdAndUpdate(place._id, {
         $inc: { photoCount: uploadedPhotos.length }
       });
     }
 
     res.status(201).json({
       success: true,
-      message: 'Upload successful',
       count: uploadedPhotos.length,
       data: uploadedPhotos,
-      place: placeId ? await Place.findById(placeId) : null
+      place
     });
 
-  } catch (error) {
-    console.error('Bulk upload error:', error);
+  } catch (err) {
+    console.error('Bulk upload error:', err);
     res.status(500).json({
       success: false,
-      message: 'Bulk upload failed',
-      error: error.message
+      message: err.message
     });
   }
 };
@@ -819,4 +800,35 @@ exports.getHomePhotos = async (req, res) => {
       message: 'Failed to fetch home photos'
     });
   }
+};
+
+
+
+
+
+exports.getNearbyPhotos = async (req, res) => {
+  const coords = normalizeCoordinates(req.query.latitude, req.query.longitude);
+  if (!coords) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid latitude or longitude'
+    });
+  }
+
+  const radius = parseInt(req.query.radius || 5000);
+
+  const photos = await Photo.find({
+    approvalStatus: 'approved',
+    location: {
+      $near: {
+        $geometry: { type: 'Point', coordinates: coords },
+        $maxDistance: radius
+      }
+    }
+  })
+    .populate('userId', 'name profilePhoto')
+    .populate('placeId', 'name city state country')
+    .limit(50);
+
+  res.json({ success: true, data: photos });
 };
