@@ -245,7 +245,8 @@ class GooglePhotosService {
                     },
                     city: locationData.city,
                     state: locationData.state,
-                    country: locationData.country
+                    country: locationData.country,
+                     photoCount: 0
                   });
                 }
 

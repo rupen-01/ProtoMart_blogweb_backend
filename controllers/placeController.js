@@ -1,5 +1,6 @@
 const Place = require('../models/Place');
 const Photo = require('../models/Photo');
+const Blog = require('../models/Blog');
 
 /**
  * Get all places with pagination
@@ -242,6 +243,48 @@ exports.getPlacesHierarchy = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch hierarchy',
+      error: error.message
+    });
+  }
+};
+
+exports.getPlaceBlogs = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, sortBy = 'createdAt' } = req.query;
+    const skip = (page - 1) * limit;
+
+   // Add at top of file
+
+    const blogs = await Blog.find({
+      placeId: req.params.id,
+      status: 'published'
+    })
+      .populate('authorId', 'name profilePhoto')
+      .sort({ [sortBy]: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Blog.countDocuments({
+      placeId: req.params.id,
+      status: 'published'
+    });
+
+    res.json({
+      success: true,
+      data: blogs,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / limit),
+        totalBlogs: total,
+        limit: parseInt(limit)
+      }
+    });
+
+  } catch (error) {
+    console.error('Get place blogs error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch place blogs',
       error: error.message
     });
   }
