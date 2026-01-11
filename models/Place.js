@@ -45,38 +45,38 @@
 
 // module.exports = mongoose.model('Place', placeSchema);
 
-
-
-
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const placeSchema = new mongoose.Schema(
   {
     name: {
       type: String,
       required: true,
-      trim: true
+      trim: true,
     },
     city: String,
     state: String,
     country: String,
-
+    photoCount: {
+      type: Number,
+      default: 0,
+    },
+    description: String,
     location: {
       type: {
         type: String,
-        enum: ['Point'],
-        default: 'Point'
+        enum: ["Point"],
+        default: "Point",
       },
       coordinates: {
         type: [Number], // [lng, lat]
-        required: true
-      }
-    }
+        required: true,
+      },
+    },
   },
   { timestamps: true }
 );
 
-// ✅ IMPORTANT
-placeSchema.index({ location: '2dsphere' });
+placeSchema.index({ location: "2dsphere" });
 
-module.exports = mongoose.model('Place', placeSchema);
+module.exports = mongoose.model("Place", placeSchema);
