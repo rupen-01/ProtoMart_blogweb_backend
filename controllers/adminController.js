@@ -47,67 +47,106 @@ exports.getPendingPhotos = async (req, res) => {
  * Approve photo
  * POST /api/admin/photos/:id/approve
  */
+// exports.approvePhoto = async (req, res) => {
+//   try {
+//     const photo = await Photo.findById(req.params.id);
+
+//     if (!photo) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Photo not found'
+//       });
+//     }
+
+//     if (photo.approvalStatus === 'approved') {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Photo is already approved'
+//       });
+//     }
+
+//     // Update photo status
+//     photo.approvalStatus = 'approved';
+//     photo.approvedAt = new Date();
+//     photo.approvedBy = req.user._id;
+//     photo.rewardGiven = true;
+//     await photo.save();
+
+//     // Add reward to user wallet
+//     await User.findByIdAndUpdate(photo.userId, {
+//       $inc: { walletBalance: 1 }
+//     });
+
+//     // Create transaction record
+//     await Transaction.create({
+//       userId: photo.userId,
+//       amount: 1,
+//       type: 'reward',
+//       status: 'completed',
+//       description: 'Photo approved - Reward credited',
+//       photoId: photo._id
+//     });
+
+//     // Update place photo count if place exists
+//     if (photo.placeId) {
+//       await Place.findByIdAndUpdate(photo.placeId, {
+//         $inc: { photoCount: 1 }
+//       });
+//     }
+
+//     res.json({
+//       success: true,
+//       message: 'Photo approved successfully and reward credited',
+//       data: photo
+//     });
+
+//   } catch (error) {
+//     console.error('Approve photo error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Failed to approve photo',
+//       error: error.message
+//     });
+//   }
+// };
+
 exports.approvePhoto = async (req, res) => {
-  try {
-    const photo = await Photo.findById(req.params.id);
+  const photo = await Photo.findById(req.params.id);
+  if (!photo) return res.status(404).json({ success: false });
 
-    if (!photo) {
-      return res.status(404).json({
-        success: false,
-        message: 'Photo not found'
-      });
-    }
+  if (photo.approvalStatus === 'approved') {
+    return res.status(400).json({ success: false, message: 'Already approved' });
+  }
 
-    if (photo.approvalStatus === 'approved') {
-      return res.status(400).json({
-        success: false,
-        message: 'Photo is already approved'
-      });
-    }
+  const rewardSetting = await RewardSetting.findOne({ isActive: true });
+  const rewardAmount = rewardSetting?.photoApprovalReward || 0;
 
-    // Update photo status
-    photo.approvalStatus = 'approved';
-    photo.approvedAt = new Date();
-    photo.approvedBy = req.user._id;
-    photo.rewardGiven = true;
-    await photo.save();
+  photo.approvalStatus = 'approved';
+  photo.approvedAt = new Date();
+  photo.approvedBy = req.user._id;
+  photo.rewardGiven = rewardAmount > 0;
+  photo.rewardAmount = rewardAmount; // 🔥 store amount
+  await photo.save();
 
-    // Add reward to user wallet
+  if (rewardAmount > 0) {
     await User.findByIdAndUpdate(photo.userId, {
-      $inc: { walletBalance: 1 }
+      $inc: { walletBalance: rewardAmount }
     });
 
-    // Create transaction record
     await Transaction.create({
       userId: photo.userId,
-      amount: 1,
+      amount: rewardAmount,
       type: 'reward',
       status: 'completed',
-      description: 'Photo approved - Reward credited',
+      description: `Photo approved - ₹${rewardAmount} credited`,
       photoId: photo._id
     });
-
-    // Update place photo count if place exists
-    if (photo.placeId) {
-      await Place.findByIdAndUpdate(photo.placeId, {
-        $inc: { photoCount: 1 }
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Photo approved successfully and reward credited',
-      data: photo
-    });
-
-  } catch (error) {
-    console.error('Approve photo error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to approve photo',
-      error: error.message
-    });
   }
+
+  res.json({
+    success: true,
+    message: `Photo approved. Reward ₹${rewardAmount} credited`
+  });
 };
 
 /**
@@ -285,29 +324,63 @@ exports.updateWatermarkSettings = async (req, res) => {
  */
 exports.getStats = async (req, res) => {
   try {
+    const rewardSum = await Transaction.aggregate([
+      { $match: { type: 'reward', status: 'completed' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+
     const stats = {
       totalUsers: await User.countDocuments(),
       totalPhotos: await Photo.countDocuments(),
       pendingPhotos: await Photo.countDocuments({ approvalStatus: 'pending' }),
       approvedPhotos: await Photo.countDocuments({ approvalStatus: 'approved' }),
       rejectedPhotos: await Photo.countDocuments({ approvalStatus: 'rejected' }),
-      totalRewardsGiven: await Transaction.countDocuments({ type: 'reward', status: 'completed' }),
-      totalWalletBalance: (await User.aggregate([
-        { $group: { _id: null, total: { $sum: '$walletBalance' } } }
-      ]))[0]?.total || 0
+      totalRewardsGiven: rewardSum[0]?.total || 0
     };
 
-    res.json({
-      success: true,
-      data: stats
-    });
-
+    res.json({ success: true, data: stats });
   } catch (error) {
-    console.error('Get stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch stats',
-      error: error.message
+    res.status(500).json({ success: false });
+  }
+};
+
+const RewardSetting = require('../models/RewardSetting');
+
+exports.getRewardSetting = async (req, res) => {
+  let setting = await RewardSetting.findOne({ isActive: true });
+
+  if (!setting) {
+    setting = await RewardSetting.create({
+      photoApprovalReward: 1,
+      updatedBy: req.user._id
     });
   }
+
+  res.json({ success: true, data: setting });
+};
+
+
+exports.updateRewardSetting = async (req, res) => {
+  const { photoApprovalReward } = req.body;
+
+  if (photoApprovalReward < 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Reward amount cannot be negative'
+    });
+  }
+
+  await RewardSetting.updateMany({ isActive: true }, { isActive: false });
+
+  const setting = await RewardSetting.create({
+    photoApprovalReward,
+    isActive: true,
+    updatedBy: req.user._id
+  });
+
+  res.json({
+    success: true,
+    message: 'Reward amount updated',
+    data: setting
+  });
 };

@@ -58,10 +58,20 @@ router.put(
 
 /* ===================== DASHBOARD ===================== */
 
-// Admin dashboard stats
+//* ===================== DASHBOARD ===================== */
+
+router.get('/stats', adminController.getStats);
+
+/* ===================== REWARD SETTINGS ===================== */
+
 router.get(
-  '/stats',
-  adminController.getStats
+  '/rewards/settings',
+  adminController.getRewardSetting
+);
+
+router.put(
+  '/rewards/settings',
+  adminController.updateRewardSetting
 );
 
 module.exports = router;

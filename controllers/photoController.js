@@ -631,19 +631,20 @@ exports.deletePhoto = async (req, res) => {
     await photo.deleteOne();
 
     // If reward was given, deduct from wallet
-    if (photo.rewardGiven) {
-      await User.findByIdAndUpdate(photo.userId, {
-        $inc: { walletBalance: -1 }
-      });
+    if (photo.rewardGiven && photo.rewardAmount > 0) {
+  await User.findByIdAndUpdate(photo.userId, {
+    $inc: { walletBalance: -photo.rewardAmount }
+  });
 
-      await Transaction.create({
-        userId: photo.userId,
-        amount: -1,
-        type: 'refund',
-        description: 'Photo deleted - reward reversed',
-        photoId: photo._id
-      });
-    }
+  await Transaction.create({
+    userId: photo.userId,
+    amount: -photo.rewardAmount,
+    type: 'refund',
+    description: 'Photo deleted - reward reversed',
+    photoId: photo._id
+  });
+}
+
 
     res.json({
       success: true,

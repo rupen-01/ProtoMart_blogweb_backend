@@ -21,7 +21,7 @@
 //   },
 //   thumbnailUrl: String,
 //   mediumUrl: String,
-  
+
 //   fileName: {
 //     type: String,
 //     required: true
@@ -39,7 +39,7 @@
 //   enum: ['image', 'video'],
 //   default: 'image'
 // },
-  
+
 //   // Location data
 //   location: {
 //     type: {
@@ -60,7 +60,7 @@
 //   city: String,
 //   state: String,
 //   country: String,
-  
+
 //   // EXIF data
 //   exifData: {
 //     dateTaken: Date,
@@ -71,7 +71,7 @@
 //     shutterSpeed: String,
 //     focalLength: String
 //   },
-  
+
 //   // Approval workflow
 //   approvalStatus: {
 //     type: String,
@@ -88,7 +88,7 @@
 //     type: Boolean,
 //     default: false
 //   },
-  
+
 //   // Engagement metrics
 //   views: {
 //     type: Number,
@@ -98,7 +98,7 @@
 //     type: Number,
 //     default: 0
 //   },
-  
+
 //   // Source tracking
 //   source: {
 //     type: String,
@@ -119,7 +119,6 @@
 // photoSchema.index({ cloudinaryId: 1 });
 
 // module.exports = mongoose.model('Photo', photoSchema);
-
 
 // const mongoose = require('mongoose');
 
@@ -248,14 +247,15 @@
 
 // module.exports = mongoose.model('Photo', photoSchema);
 
-
-
-
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const photoSchema = new mongoose.Schema(
   {
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
 
     cloudinaryId: { type: String, required: true, unique: true },
     originalUrl: { type: String, required: true },
@@ -264,24 +264,29 @@ const photoSchema = new mongoose.Schema(
     fileSize: Number,
     mimeType: String,
 
-    mediaType: { type: String, enum: ['image', 'video'], default: 'image' },
+    mediaType: { type: String, enum: ["image", "video"], default: "image" },
 
     location: {
       type: {
         type: String,
-        enum: ['Point']
+        enum: ["Point"],
       },
       coordinates: {
         type: [Number],
         validate: {
-          validator: v =>
-            !v || (v.length === 2 && v[0] >= -180 && v[0] <= 180 && v[1] >= -90 && v[1] <= 90),
-          message: 'Invalid Geo coordinates'
-        }
-      }
+          validator: (v) =>
+            !v ||
+            (v.length === 2 &&
+              v[0] >= -180 &&
+              v[0] <= 180 &&
+              v[1] >= -90 &&
+              v[1] <= 90),
+          message: "Invalid Geo coordinates",
+        },
+      },
     },
 
-    placeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Place' },
+    placeId: { type: mongoose.Schema.Types.ObjectId, ref: "Place" },
     placeName: String,
     city: String,
     state: String,
@@ -289,23 +294,30 @@ const photoSchema = new mongoose.Schema(
 
     approvalStatus: {
       type: String,
-      enum: ['pending', 'approved', 'rejected'],
-      default: 'pending'
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
     },
-
+    rewardGiven: {
+      type: Boolean,
+      default: false,
+    },
+    rewardAmount: {
+      type: Number,
+      default: 0,
+    },
     views: { type: Number, default: 0 },
     likes: { type: Number, default: 0 },
 
     source: {
       type: String,
-      enum: ['direct_upload', 'bulk_upload', 'admin_upload'],
-      default: 'direct_upload'
-    }
+      enum: ["direct_upload", "bulk_upload", "admin_upload"],
+      default: "direct_upload",
+    },
   },
   { timestamps: true }
 );
 
-photoSchema.index({ location: '2dsphere' });
+photoSchema.index({ location: "2dsphere" });
 photoSchema.index({ approvalStatus: 1, createdAt: -1 });
 
-module.exports = mongoose.model('Photo', photoSchema);
+module.exports = mongoose.model("Photo", photoSchema);
