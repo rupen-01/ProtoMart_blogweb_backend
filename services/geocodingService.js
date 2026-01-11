@@ -38,3 +38,26 @@ exports.reverseGeocode = async (latitude, longitude) => {
     return null;
   }
 };
+
+exports.getPinCodeDetails = async (pinCode) => {
+  try {
+    // Using Zippopotam.us - Free
+    const response = await axios.get(
+      `http://api.zippopotam.us/us/${pinCode}`
+    );
+    if (response.data) {
+      const place = response.data.places[0];
+      return {
+        fullAddress: `${place['place name']}, ${place['state abbreviation']}, ${response.data['country abbreviation']}`,
+        city: place['place name'],
+        state: place['state abbreviation'],
+        country: response.data['country abbreviation']
+      };
+    }
+    return null;
+  }
+  catch (error) {
+    console.error('Pin code geocoding error:', error.message);
+    return null;
+  }
+};

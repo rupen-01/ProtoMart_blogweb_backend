@@ -29,8 +29,28 @@ const generateRefreshToken = (id) => {
  */
 exports.register = async (req, res) => {
   try {
-    const { name, email, password, phone, dateOfBirth, pinCode } = req.body;
-    const normalizedEmail = email.toLowerCase();
+    const { name, email, password, phone, dateOfBirth, pinCode, role } =
+      req.body;
+
+    console.log("Register request body:", req.body);
+    
+    // Basic required field validation
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, email and password are required",
+      });
+    }
+
+    const normalizedEmail = String(email).toLowerCase().trim();
+    
+    // Simple email format check
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email format",
+      });
+    }
 
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
@@ -40,36 +60,61 @@ exports.register = async (req, res) => {
       });
     }
 
-    let addressData = {};
+    // Resolve address data only if pinCode provided
+    let addressData = null;
     if (pinCode) {
-      const pinData = await geocodingService.getPinCodeDetails(pinCode);
-      if (pinData) {
-        addressData = {
-          fullAddress: pinData.fullAddress,
-          city: pinData.city,
-          state: pinData.state,
-          country: pinData.country,
-        };
+      const pin = String(pinCode).trim();
+      try {
+        const pinData = await geocodingService.getPinCodeDetails(pin);
+        if (
+          pinData &&
+          (pinData.fullAddress ||
+            pinData.city ||
+            pinData.state ||
+            pinData.country)
+        ) {
+          addressData = {
+            fullAddress: pinData.fullAddress || "",
+            city: pinData.city || "",
+            state: pinData.state || "",
+            country: pinData.country || "",
+          };
+        }
+      } catch (geoErr) {
+        // don't fail registration for geocoding errors
+        console.error("Geocoding error:", geoErr && geoErr.message);
       }
     }
 
-    const user = await User.create({
+    // Only allow known roles, default to 'user'
+    const allowedRoles = ["user", "admin", "superadmin"];
+    const selectedRole = allowedRoles.includes(role) ? role : "user";
+
+    // Build user payload
+    const userPayload = {
       name,
       email: normalizedEmail,
       password,
-      phone,
-      dateOfBirth,
-      pinCode,
-      address: addressData,
-    });
+      role: selectedRole,
+    };
+    
+    if (phone) userPayload.phone = phone;
+    if (dateOfBirth) userPayload.dateOfBirth = dateOfBirth;
+    if (pinCode) userPayload.pinCode = String(pinCode).trim(); // Add pinCode to root
+    
+    // Add address data if available
+    if (addressData && Object.keys(addressData).length > 0) {
+      userPayload.address = addressData;
+    }
 
+    const user = await User.create(userPayload);
+
+    // create and save email verification token
     const verificationToken = crypto.randomBytes(20).toString("hex");
-
     user.emailVerificationToken = crypto
       .createHash("sha256")
       .update(verificationToken)
       .digest("hex");
-
     await user.save();
 
     await emailService.sendVerificationEmail(
@@ -81,11 +126,35 @@ exports.register = async (req, res) => {
     res.status(201).json({
       success: true,
       message: "User registered successfully. Please verify your email.",
+      data: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        pinCode: user.pinCode,
+        address: user.address || null,
+      },
+    });
+  } catch (error) {
+    console.error("Registration error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Registration failed",
+      error: error.message,
+    });
+  }
+};
+
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find({}).select("-password");
+    res.status(200).json({
+      success: true,
+      data: users,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Registration failed",
+      message: "Failed to retrieve users",
       error: error.message,
     });
   }
@@ -168,9 +237,7 @@ exports.googleAuthSuccess = async (req, res) => {
       `${process.env.FRONTEND_URL}/google-auth-success?token=${token}&refreshToken=${refreshToken}`
     );
   } catch (error) {
-    res.redirect(
-      `${process.env.FRONTEND_URL}/login?error=server_error`
-    );
+    res.redirect(`${process.env.FRONTEND_URL}/login?error=server_error`);
   }
 };
 
@@ -241,11 +308,7 @@ exports.forgotPassword = async (req, res) => {
   user.resetPasswordExpire = Date.now() + 30 * 60 * 1000;
   await user.save();
 
-  await emailService.sendPasswordResetEmail(
-    user.email,
-    user.name,
-    resetToken
-  );
+  await emailService.sendPasswordResetEmail(user.email, user.name, resetToken);
 
   res.json({
     success: true,
