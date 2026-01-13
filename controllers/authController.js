@@ -33,7 +33,7 @@ exports.register = async (req, res) => {
       req.body;
 
     console.log("Register request body:", req.body);
-    
+
     // Basic required field validation
     if (!name || !email || !password) {
       return res.status(400).json({
@@ -43,7 +43,7 @@ exports.register = async (req, res) => {
     }
 
     const normalizedEmail = String(email).toLowerCase().trim();
-    
+
     // Simple email format check
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
       return res.status(400).json({
@@ -97,11 +97,11 @@ exports.register = async (req, res) => {
       password,
       role: selectedRole,
     };
-    
+
     if (phone) userPayload.phone = phone;
     if (dateOfBirth) userPayload.dateOfBirth = dateOfBirth;
     if (pinCode) userPayload.pinCode = String(pinCode).trim(); // Add pinCode to root
-    
+
     // Add address data if available
     if (addressData && Object.keys(addressData).length > 0) {
       userPayload.address = addressData;
@@ -168,7 +168,6 @@ exports.getAllUsers = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
     const user = await User.findOne({
       email: email.toLowerCase(),
     }).select("+password");
@@ -180,10 +179,20 @@ exports.login = async (req, res) => {
       });
     }
 
-    if (user.provider === "google") {
+    // REMOVE THIS CHECK - Let users login with both methods
+    // if (user.provider === "google") {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Please login using Google",
+    //   });
+    // }
+
+    // Check if password exists (for Google users who never set a password)
+    if (!user.password) {
       return res.status(400).json({
         success: false,
-        message: "Please login using Google",
+        message:
+          "No password set. Please login using Google or reset your password.",
       });
     }
 
@@ -214,7 +223,6 @@ exports.login = async (req, res) => {
     });
   }
 };
-
 /**
  * =========================
  * GOOGLE AUTH SUCCESS
