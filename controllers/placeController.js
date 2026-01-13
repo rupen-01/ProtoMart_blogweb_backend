@@ -25,6 +25,9 @@ exports.getAllPlaces = async (req, res) => {
       .limit(parseInt(limit));
 
     const total = await Place.countDocuments(query);
+    
+    // ADD THIS: Get total photos count
+    const totalPhotos = await Photo.countDocuments({ approvalStatus: 'approved' });
 
     res.json({
       success: true,
@@ -33,6 +36,7 @@ exports.getAllPlaces = async (req, res) => {
         currentPage: parseInt(page),
         totalPages: Math.ceil(total / limit),
         totalPlaces: total,
+        totalPhotos: totalPhotos, // ADD THIS
         limit: parseInt(limit)
       }
     });
@@ -46,7 +50,6 @@ exports.getAllPlaces = async (req, res) => {
     });
   }
 };
-
 /**
  * Get places for map (3D earth visualization)
  * GET /api/places/map

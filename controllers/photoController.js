@@ -198,7 +198,26 @@ exports.bulkUpload = async (req, res) => {
     let locationData = null;
 
     // -------- LOCATION LOGIC --------
-    if (coordinates) {
+    // NEW: Check if placeId is provided directly
+    if (req.body.placeId) {
+      place = await Place.findById(req.body.placeId);
+      
+      if (!place) {
+        return res.status(404).json({
+          success: false,
+          message: 'Place not found'
+        });
+      }
+
+      locationData = {
+        placeName: place.name,
+        city: place.city,
+        state: place.state,
+        country: place.country
+      };
+    } 
+    // EXISTING: Find or create place from coordinates
+    else if (coordinates) {
       place = await Place.findOne({
         location: {
           $near: {
@@ -257,10 +276,18 @@ exports.bulkUpload = async (req, res) => {
         source: 'bulk_upload'
       };
 
-      if (coordinates) {
-        photoData.location = { type: 'Point', coordinates };
+      // MODIFIED: Handle location data
+      if (place) {
+        // Use place's coordinates if placeId was provided, otherwise use provided coordinates
+        photoData.location = { 
+          type: 'Point', 
+          coordinates: req.body.placeId ? place.location.coordinates : coordinates 
+        };
         photoData.placeId = place._id;
         Object.assign(photoData, locationData);
+      } else if (coordinates) {
+        // No place found/created, but coordinates provided
+        photoData.location = { type: 'Point', coordinates };
       }
 
       uploadedPhotos.push(await Photo.create(photoData));
