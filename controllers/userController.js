@@ -31,31 +31,38 @@ exports.getProfile = async (req, res) => {
  */
 exports.updateProfile = async (req, res) => {
   try {
-    const { name, phone, dateOfBirth, pinCode } = req.body;
+    const { name, phone, dateOfBirth, pinCode, countryCode } = req.body;
     const userId = req.user._id;
 
     const updateData = {};
+
     if (name) updateData.name = name;
     if (phone) updateData.phone = phone;
     if (dateOfBirth) updateData.dateOfBirth = dateOfBirth;
 
-    // If pin code is updated, fetch new address
+    // If pin code is changed
     if (pinCode && pinCode !== req.user.pinCode) {
-      const pinCodeDetails = await geocodingService.getPinCodeDetails(pinCode);
-      if (pinCodeDetails) {
-        updateData.pinCode = pinCode;
-        updateData.address = {
-          fullAddress: pinCodeDetails.fullAddress,
-          city: pinCodeDetails.city,
-          state: pinCodeDetails.state,
-          country: pinCodeDetails.country
-        };
-      } else {
+      const pinCodeDetails =
+        await geocodingService.getPinCodeDetails(
+          pinCode,
+          countryCode || "IN" // default India
+        );
+
+      if (!pinCodeDetails) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid pin code'
+          message: "Invalid pin / postal code"
         });
       }
+
+      updateData.pinCode = pinCode;
+      updateData.address = {
+        fullAddress: pinCodeDetails.fullAddress,
+        city: pinCodeDetails.city,
+        state: pinCodeDetails.state,
+        country: pinCodeDetails.country,
+        countryCode: pinCodeDetails.countryCode
+      };
     }
 
     const user = await User.findByIdAndUpdate(
@@ -66,19 +73,20 @@ exports.updateProfile = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Profile updated successfully',
+      message: "Profile updated successfully",
       data: user
     });
 
   } catch (error) {
-    console.error('Update profile error:', error);
+    console.error("Update profile error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update profile',
+      message: "Failed to update profile",
       error: error.message
     });
   }
 };
+
 
 /**
  * Upload profile photo

@@ -39,25 +39,33 @@ exports.reverseGeocode = async (latitude, longitude) => {
   }
 };
 
-exports.getPinCodeDetails = async (pinCode) => {
+
+/**
+ * Get pin/postal code details (India + other countries)
+ * @param {String} pinCode
+ * @param {String} countryCode (default IN)
+ */
+exports.getPinCodeDetails = async (pinCode, countryCode = "IN") => {
   try {
-    // Using Zippopotam.us - Free
     const response = await axios.get(
-      `http://api.zippopotam.us/us/${pinCode}`
+      `https://api.zippopotam.us/${countryCode}/${pinCode}`
     );
-    if (response.data) {
-      const place = response.data.places[0];
-      return {
-        fullAddress: `${place['place name']}, ${place['state abbreviation']}, ${response.data['country abbreviation']}`,
-        city: place['place name'],
-        state: place['state abbreviation'],
-        country: response.data['country abbreviation']
-      };
+
+    if (!response.data || !response.data.places?.length) {
+      return null;
     }
-    return null;
-  }
-  catch (error) {
-    console.error('Pin code geocoding error:', error.message);
+
+    const place = response.data.places[0];
+
+    return {
+      fullAddress: `${place["place name"]}, ${place["state"]}, ${response.data.country}`,
+      city: place["place name"],
+      state: place["state"],
+      country: response.data.country,
+      countryCode: response.data["country abbreviation"]
+    };
+  } catch (error) {
+    console.error("Pin code geocoding error:", error.response?.status);
     return null;
   }
 };
