@@ -1,178 +1,11 @@
-const Photo = require('../models/Photo');
-const User = require('../models/User');
-const Place = require('../models/Place');
-const Transaction = require('../models/Transaction');
-const WatermarkSetting = require('../models/WatermarkSetting');
-const cloudinaryService = require('../services/cloudinaryService');
-const geocodingService = require('../services/geocodingService');
-const { normalizeCoordinates } = require('../utils/geo.util');
-
-/**
- * Bulk upload images & videos
- * POST /api/photos/upload/bulk
- */
-// exports.bulkUpload = async (req, res) => {
-//   try {
-//     if (!req.files || req.files.length === 0) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Please upload files'
-//       });
-//     }
-
-//     const userId = req.user._id;
-//     const uploadedPhotos = [];
-
-//     // Get coordinates from request
-//     const latitude = parseFloat(req.body.latitude);
-//     const longitude = parseFloat(req.body.longitude);
-
-//     let placeId = null;
-//     let locationData = null;
-
-//     // If coordinates provided, find or create place
-//     if (latitude && longitude) {
-//       const coordinates = [longitude, latitude]; // GeoJSON format
-
-//       // Search for existing place within 500 meters (0.5km)
-//       let place = await Place.findOne({
-//         location: {
-//           $near: {
-//             $geometry: {
-//               type: 'Point',
-//               coordinates: coordinates
-//             },
-//             $maxDistance: 500 // 500 meters radius
-//           }
-//         }
-//       });
-
-//       // If no nearby place found, create new one
-//       if (!place) {
-//         try {
-//           // Get location details from reverse geocoding
-//           locationData = await geocodingService.reverseGeocode(latitude, longitude);
-
-//           if (locationData) {
-//             place = await Place.create({
-//               name: locationData.placeName || `Location at ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
-//               location: {
-//                 type: 'Point',
-//                 coordinates: coordinates
-//               },
-//               city: locationData.city,
-//               state: locationData.state,
-//               country: locationData.country,
-//               photoCount: 0
-//             });
-//           } else {
-//             // Fallback if geocoding fails
-//             place = await Place.create({
-//               name: `Location at ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
-//               location: {
-//                 type: 'Point',
-//                 coordinates: coordinates
-//               },
-//               country: 'Unknown',
-//               photoCount: 0
-//             });
-//           }
-//         } catch (geoError) {
-//           console.error('Geocoding error:', geoError);
-//           // Create place without detailed location data
-//           place = await Place.create({
-//             name: `Location at ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
-//             location: {
-//               type: 'Point',
-//               coordinates: coordinates
-//             },
-//             country: 'Unknown',
-//             photoCount: 0
-//           });
-//         }
-//       }
-
-//       placeId = place._id;
-
-//       // Use place's location data for photos
-//       locationData = {
-//         placeName: place.name,
-//         city: place.city,
-//         state: place.state,
-//         country: place.country
-//       };
-//     }
-
-//     // Upload each file
-//     for (const file of req.files) {
-//       const cloudResult = await cloudinaryService.uploadMedia(
-//         file.buffer,
-//         file.mimetype,
-//         {
-//           folder: `${process.env.CLOUDINARY_FOLDER}/users/${userId}`
-//         }
-//       );
-
-//       const photoData = {
-//         userId,
-//         cloudinaryId: cloudResult.public_id,
-//         originalUrl: cloudResult.secure_url,
-//         fileName: file.originalname,
-//         fileSize: cloudResult.bytes,
-//         mimeType: file.mimetype,
-//         mediaType: file.mimetype.startsWith('video') ? 'video' : 'image',
-//         source: 'bulk_upload'
-//       };
-
-//       // Add location data if available
-//       if (latitude && longitude) {
-//         photoData.location = {
-//           type: 'Point',
-//           coordinates: [longitude, latitude]
-//         };
-        
-//         if (placeId) {
-//           photoData.placeId = placeId;
-//         }
-        
-//         if (locationData) {
-//           photoData.placeName = locationData.placeName;
-//           photoData.city = locationData.city;
-//           photoData.state = locationData.state;
-//           photoData.country = locationData.country;
-//         }
-//       }
-
-//       const photo = await Photo.create(photoData);
-//       uploadedPhotos.push(photo);
-//     }
-
-//     // Update place photo count
-//     if (placeId) {
-//       await Place.findByIdAndUpdate(placeId, {
-//         $inc: { photoCount: uploadedPhotos.length }
-//       });
-//     }
-
-//     res.status(201).json({
-//       success: true,
-//       message: 'Upload successful',
-//       count: uploadedPhotos.length,
-//       data: uploadedPhotos,
-//       place: placeId ? await Place.findById(placeId) : null
-//     });
-
-//   } catch (error) {
-//     console.error('Bulk upload error:', error);
-//     res.status(500).json({
-//       success: false,
-//       message: 'Bulk upload failed',
-//       error: error.message
-//     });
-//   }
-// };
-
-
+const Photo = require("../models/Photo");
+const User = require("../models/User");
+const Place = require("../models/Place");
+const Transaction = require("../models/Transaction");
+const WatermarkSetting = require("../models/WatermarkSetting");
+const cloudinaryService = require("../services/cloudinaryService");
+const geocodingService = require("../services/geocodingService");
+const { normalizeCoordinates } = require("../utils/geo.util");
 
 /**
  * Bulk upload images & videos
@@ -182,7 +15,7 @@ exports.bulkUpload = async (req, res) => {
     if (!Array.isArray(req.files) || req.files.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Please upload files'
+        message: "Please upload files",
       });
     }
 
@@ -197,15 +30,14 @@ exports.bulkUpload = async (req, res) => {
     let place = null;
     let locationData = null;
 
-    // -------- LOCATION LOGIC --------
-    // NEW: Check if placeId is provided directly
+    // ================= LOCATION LOGIC =================
     if (req.body.placeId) {
       place = await Place.findById(req.body.placeId);
-      
+
       if (!place) {
         return res.status(404).json({
           success: false,
-          message: 'Place not found'
+          message: "Place not found",
         });
       }
 
@@ -213,18 +45,16 @@ exports.bulkUpload = async (req, res) => {
         placeName: place.name,
         city: place.city,
         state: place.state,
-        country: place.country
+        country: place.country,
       };
-    } 
-    // EXISTING: Find or create place from coordinates
-    else if (coordinates) {
+    } else if (coordinates) {
       place = await Place.findOne({
         location: {
           $near: {
-            $geometry: { type: 'Point', coordinates },
-            $maxDistance: 500
-          }
-        }
+            $geometry: { type: "Point", coordinates },
+            $maxDistance: 500,
+          },
+        },
       });
 
       if (!place) {
@@ -238,12 +68,14 @@ exports.bulkUpload = async (req, res) => {
         place = await Place.create({
           name:
             locationData?.placeName ||
-            `Location ${coordinates[1].toFixed(4)}, ${coordinates[0].toFixed(4)}`,
-          location: { type: 'Point', coordinates },
+            `Location ${coordinates[1].toFixed(4)}, ${coordinates[0].toFixed(
+              4
+            )}`,
+          location: { type: "Point", coordinates },
           city: locationData?.city,
           state: locationData?.state,
-          country: locationData?.country || 'Unknown',
-          photoCount: 0
+          country: locationData?.country || "Unknown",
+          photoCount: 0,
         });
       }
 
@@ -251,70 +83,107 @@ exports.bulkUpload = async (req, res) => {
         placeName: place.name,
         city: place.city,
         state: place.state,
-        country: place.country
+        country: place.country,
       };
     }
 
-    // -------- FILE UPLOAD --------
+    // ================= FETCH WATERMARK SETTINGS =================
+    const watermarkSettings = await WatermarkSetting.findOne({
+      isActive: true,
+    });
+
+    console.log("✅ Watermark settings loaded:", {
+      type: watermarkSettings?.type,
+      hasImage: !!watermarkSettings?.watermarkImageUrl,
+      text: watermarkSettings?.text,
+    });
+
+    // ================= FILE UPLOAD =================
     for (const file of req.files) {
+      // Upload to Cloudinary
       const cloud = await cloudinaryService.uploadMedia(
         file.buffer,
         file.mimetype,
         {
-          folder: `${process.env.CLOUDINARY_FOLDER}/users/${userId}`
+          folder: `${process.env.CLOUDINARY_FOLDER}/users/${userId}`,
         }
       );
+
+      let watermarkedUrl = cloud.secure_url;
+
+      // ✅ Apply watermark only to images
+      if (watermarkSettings && file.mimetype.startsWith("image")) {
+        try {
+          watermarkedUrl = cloudinaryService.getWatermarkedUrl(
+            cloud.public_id,
+            watermarkSettings
+          );
+
+          console.log("✅ Watermarked URL generated:", watermarkedUrl);
+        } catch (err) {
+          console.error("❌ Watermark generation failed:", err.message);
+          // Fallback to original URL if watermark fails
+        }
+      }
 
       const photoData = {
         userId,
         cloudinaryId: cloud.public_id,
         originalUrl: cloud.secure_url,
+        watermarkedUrl, // Will be watermarked URL or fallback to original
         fileName: file.originalname,
         fileSize: cloud.bytes,
         mimeType: file.mimetype,
-        mediaType: file.mimetype.startsWith('video') ? 'video' : 'image',
-        source: 'bulk_upload'
+        mediaType: file.mimetype.startsWith("video") ? "video" : "image",
+        source: "bulk_upload",
       };
 
-      // MODIFIED: Handle location data
-      if (place) {
-        // Use place's coordinates if placeId was provided, otherwise use provided coordinates
-        photoData.location = { 
-          type: 'Point', 
-          coordinates: req.body.placeId ? place.location.coordinates : coordinates 
+      // ================= ADD LOCATION DATA =================
+      if (place?.location?.coordinates) {
+        photoData.location = {
+          type: "Point",
+          coordinates: req.body.placeId
+            ? place.location.coordinates
+            : coordinates,
         };
         photoData.placeId = place._id;
         Object.assign(photoData, locationData);
       } else if (coordinates) {
-        // No place found/created, but coordinates provided
-        photoData.location = { type: 'Point', coordinates };
+        photoData.location = { type: "Point", coordinates };
       }
 
+      console.log("📸 Photo data prepared:", {
+        fileName: photoData.fileName,
+        mediaType: photoData.mediaType,
+        watermarked: photoData.watermarkedUrl !== photoData.originalUrl,
+      });
+
+      console.log("Uploading photo:", photoData);
+      // ✅ UNCOMMENT to save to database
       uploadedPhotos.push(await Photo.create(photoData));
     }
 
+    // ================= UPDATE PLACE PHOTO COUNT =================
     if (place) {
       await Place.findByIdAndUpdate(place._id, {
-        $inc: { photoCount: uploadedPhotos.length }
+        $inc: { photoCount: uploadedPhotos.length },
       });
     }
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       count: uploadedPhotos.length,
       data: uploadedPhotos,
-      place
+      place,
     });
-
   } catch (err) {
-    console.error('Bulk upload error:', err);
-    res.status(500).json({
+    console.error("❌ Bulk upload error:", err);
+    return res.status(500).json({
       success: false,
-      message: err.message
+      message: err.message,
     });
   }
 };
-
 /**
  * Get photo with watermark
  * GET /api/photos/:id
@@ -322,27 +191,31 @@ exports.bulkUpload = async (req, res) => {
 exports.getPhoto = async (req, res) => {
   try {
     const photo = await Photo.findById(req.params.id)
-      .populate('userId', 'name profilePhoto')
-      .populate('placeId', 'name city state country');
+      .populate("userId", "name profilePhoto")
+      .populate("placeId", "name city state country");
 
     if (!photo) {
       return res.status(404).json({
         success: false,
-        message: 'Photo not found'
+        message: "Photo not found",
       });
     }
 
     // Only show approved photos to non-owners
-    if (photo.approvalStatus !== 'approved' && 
-        photo.userId._id.toString() !== req.user?._id.toString()) {
+    if (
+      photo.approvalStatus !== "approved" &&
+      photo.userId._id.toString() !== req.user?._id.toString()
+    ) {
       return res.status(403).json({
         success: false,
-        message: 'This photo is not yet approved'
+        message: "This photo is not yet approved",
       });
     }
 
     // Get active watermark settings
-    const watermarkSettings = await WatermarkSetting.findOne({ isActive: true });
+    const watermarkSettings = await WatermarkSetting.findOne({
+      isActive: true,
+    });
 
     if (watermarkSettings) {
       // Generate watermarked URLs
@@ -361,15 +234,14 @@ exports.getPhoto = async (req, res) => {
 
     res.json({
       success: true,
-      data: photo
+      data: photo,
     });
-
   } catch (error) {
-    console.error('Get photo error:', error);
+    console.error("Get photo error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch photo',
-      error: error.message
+      message: "Failed to fetch photo",
+      error: error.message,
     });
   }
 };
@@ -385,9 +257,9 @@ exports.getPhotos = async (req, res) => {
       limit = 20,
       placeId,
       userId,
-      status = 'approved',
-      sortBy = 'createdAt',
-      order = 'desc'
+      status = "approved",
+      sortBy = "createdAt",
+      order = "desc",
     } = req.query;
 
     const query = { approvalStatus: status };
@@ -396,11 +268,11 @@ exports.getPhotos = async (req, res) => {
     if (userId) query.userId = userId;
 
     const skip = (page - 1) * limit;
-    const sortOrder = order === 'desc' ? -1 : 1;
+    const sortOrder = order === "desc" ? -1 : 1;
 
     const photos = await Photo.find(query)
-      .populate('userId', 'name profilePhoto')
-      .populate('placeId', 'name city state country')
+      .populate("userId", "name profilePhoto")
+      .populate("placeId", "name city state country")
       .sort({ [sortBy]: sortOrder })
       .skip(skip)
       .limit(parseInt(limit));
@@ -408,11 +280,13 @@ exports.getPhotos = async (req, res) => {
     const total = await Photo.countDocuments(query);
 
     // Get active watermark settings
-    const watermarkSettings = await WatermarkSetting.findOne({ isActive: true });
+    const watermarkSettings = await WatermarkSetting.findOne({
+      isActive: true,
+    });
 
     // Add watermarked URLs to each photo
     if (watermarkSettings) {
-      photos.forEach(photo => {
+      photos.forEach((photo) => {
         const variants = cloudinaryService.getPhotoVariants(
           photo.cloudinaryId,
           watermarkSettings
@@ -429,27 +303,22 @@ exports.getPhotos = async (req, res) => {
         currentPage: parseInt(page),
         totalPages: Math.ceil(total / limit),
         totalPhotos: total,
-        limit: parseInt(limit)
-      }
+        limit: parseInt(limit),
+      },
     });
-
   } catch (error) {
-    console.error('Get photos error:', error);
+    console.error("Get photos error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch photos',
-      error: error.message
+      message: "Failed to fetch photos",
+      error: error.message,
     });
   }
 };
 
 exports.getPlacesWithPhotos = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 100,
-      status = 'approved'
-    } = req.query;
+    const { page = 1, limit = 100, status = "approved" } = req.query;
 
     // Aggregate photos by placeId
     const placesWithPhotos = await Photo.aggregate([
@@ -457,58 +326,57 @@ exports.getPlacesWithPhotos = async (req, res) => {
         $match: {
           approvalStatus: status,
           placeId: { $exists: true, $ne: null },
-          location: { $exists: true, $ne: null }
-        }
+          location: { $exists: true, $ne: null },
+        },
       },
       {
         $group: {
-          _id: '$placeId',
+          _id: "$placeId",
           photoCount: { $sum: 1 },
-          photos: { $push: '$$ROOT' },
-          location: { $first: '$location' },
-          placeName: { $first: '$placeName' },
-          city: { $first: '$city' },
-          state: { $first: '$state' },
-          country: { $first: '$country' }
-        }
+          photos: { $push: "$$ROOT" },
+          location: { $first: "$location" },
+          placeName: { $first: "$placeName" },
+          city: { $first: "$city" },
+          state: { $first: "$state" },
+          country: { $first: "$country" },
+        },
       },
       {
         $lookup: {
-          from: 'places',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'placeDetails'
-        }
+          from: "places",
+          localField: "_id",
+          foreignField: "_id",
+          as: "placeDetails",
+        },
       },
       {
         $project: {
-          placeId: '$_id',
+          placeId: "$_id",
           photoCount: 1,
           location: 1,
           placeName: 1,
           city: 1,
           state: 1,
           country: 1,
-          photos: { $slice: ['$photos', 5] }, // First 5 photos per place
-          placeDetails: { $arrayElemAt: ['$placeDetails', 0] }
-        }
+          photos: { $slice: ["$photos", 5] }, // First 5 photos per place
+          placeDetails: { $arrayElemAt: ["$placeDetails", 0] },
+        },
       },
       { $skip: (page - 1) * parseInt(limit) },
-      { $limit: parseInt(limit) }
+      { $limit: parseInt(limit) },
     ]);
 
     res.json({
       success: true,
       data: placesWithPhotos,
-      count: placesWithPhotos.length
+      count: placesWithPhotos.length,
     });
-
   } catch (error) {
-    console.error('Get places with photos error:', error);
+    console.error("Get places with photos error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch places with photos',
-      error: error.message
+      message: "Failed to fetch places with photos",
+      error: error.message,
     });
   }
 };
@@ -519,25 +387,25 @@ exports.getPhotosByCoordinates = async (req, res) => {
       limit = 20,
       placeId,
       userId,
-      status = 'approved',
-      sortBy = 'createdAt',
-      order = 'desc'
+      status = "approved",
+      sortBy = "createdAt",
+      order = "desc",
     } = req.query;
 
     const query = { approvalStatus: status };
 
     query.location = { $exists: true, $ne: null };
-    query['location.coordinates'] = { $exists: true, $ne: [] };
+    query["location.coordinates"] = { $exists: true, $ne: [] };
 
     if (placeId) query.placeId = placeId;
     if (userId) query.userId = userId;
 
     const skip = (page - 1) * limit;
-    const sortOrder = order === 'desc' ? -1 : 1;
+    const sortOrder = order === "desc" ? -1 : 1;
 
     const photos = await Photo.find(query)
-      .populate('userId', 'name profilePhoto')
-      .populate('placeId', 'name city state country')
+      .populate("userId", "name profilePhoto")
+      .populate("placeId", "name city state country")
       .sort({ [sortBy]: sortOrder })
       .skip(skip)
       .limit(parseInt(limit));
@@ -545,11 +413,13 @@ exports.getPhotosByCoordinates = async (req, res) => {
     const total = await Photo.countDocuments(query);
 
     // Get active watermark settings
-    const watermarkSettings = await WatermarkSetting.findOne({ isActive: true });
+    const watermarkSettings = await WatermarkSetting.findOne({
+      isActive: true,
+    });
 
     // Add watermarked URLs to each photo
     if (watermarkSettings) {
-      photos.forEach(photo => {
+      photos.forEach((photo) => {
         const variants = cloudinaryService.getPhotoVariants(
           photo.cloudinaryId,
           watermarkSettings
@@ -566,16 +436,15 @@ exports.getPhotosByCoordinates = async (req, res) => {
         currentPage: parseInt(page),
         totalPages: Math.ceil(total / limit),
         totalPhotos: total,
-        limit: parseInt(limit)
-      }
+        limit: parseInt(limit),
+      },
     });
-
   } catch (error) {
-    console.error('Get photos error:', error);
+    console.error("Get photos error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch photos',
-      error: error.message
+      message: "Failed to fetch photos",
+      error: error.message,
     });
   }
 };
@@ -591,38 +460,37 @@ exports.getNearbyPhotos = async (req, res) => {
     if (!latitude || !longitude) {
       return res.status(400).json({
         success: false,
-        message: 'Latitude and longitude are required'
+        message: "Latitude and longitude are required",
       });
     }
 
     const photos = await Photo.find({
-      approvalStatus: 'approved',
+      approvalStatus: "approved",
       location: {
         $near: {
           $geometry: {
-            type: 'Point',
-            coordinates: [parseFloat(longitude), parseFloat(latitude)]
+            type: "Point",
+            coordinates: [parseFloat(longitude), parseFloat(latitude)],
           },
-          $maxDistance: parseInt(radius) // meters
-        }
-      }
+          $maxDistance: parseInt(radius), // meters
+        },
+      },
     })
-    .populate('userId', 'name profilePhoto')
-    .populate('placeId', 'name city state country')
-    .limit(50);
+      .populate("userId", "name profilePhoto")
+      .populate("placeId", "name city state country")
+      .limit(50);
 
     res.json({
       success: true,
       count: photos.length,
-      data: photos
+      data: photos,
     });
-
   } catch (error) {
-    console.error('Get nearby photos error:', error);
+    console.error("Get nearby photos error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch nearby photos',
-      error: error.message
+      message: "Failed to fetch nearby photos",
+      error: error.message,
     });
   }
 };
@@ -638,16 +506,18 @@ exports.deletePhoto = async (req, res) => {
     if (!photo) {
       return res.status(404).json({
         success: false,
-        message: 'Photo not found'
+        message: "Photo not found",
       });
     }
 
     // Check if user owns the photo or is admin
-    if (photo.userId.toString() !== req.user._id.toString() && 
-        req.user.role !== 'admin') {
+    if (
+      photo.userId.toString() !== req.user._id.toString() &&
+      req.user.role !== "admin"
+    ) {
       return res.status(403).json({
         success: false,
-        message: 'You are not authorized to delete this photo'
+        message: "You are not authorized to delete this photo",
       });
     }
 
@@ -659,31 +529,29 @@ exports.deletePhoto = async (req, res) => {
 
     // If reward was given, deduct from wallet
     if (photo.rewardGiven && photo.rewardAmount > 0) {
-  await User.findByIdAndUpdate(photo.userId, {
-    $inc: { walletBalance: -photo.rewardAmount }
-  });
+      await User.findByIdAndUpdate(photo.userId, {
+        $inc: { walletBalance: -photo.rewardAmount },
+      });
 
-  await Transaction.create({
-    userId: photo.userId,
-    amount: -photo.rewardAmount,
-    type: 'refund',
-    description: 'Photo deleted - reward reversed',
-    photoId: photo._id
-  });
-}
-
+      await Transaction.create({
+        userId: photo.userId,
+        amount: -photo.rewardAmount,
+        type: "refund",
+        description: "Photo deleted - reward reversed",
+        photoId: photo._id,
+      });
+    }
 
     res.json({
       success: true,
-      message: 'Photo deleted successfully'
+      message: "Photo deleted successfully",
     });
-
   } catch (error) {
-    console.error('Delete photo error:', error);
+    console.error("Delete photo error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete photo',
-      error: error.message
+      message: "Failed to delete photo",
+      error: error.message,
     });
   }
 };
@@ -699,26 +567,25 @@ exports.toggleLike = async (req, res) => {
     if (!photo) {
       return res.status(404).json({
         success: false,
-        message: 'Photo not found'
+        message: "Photo not found",
       });
     }
 
     // Toggle like (implement proper like tracking in separate collection if needed)
     await Photo.findByIdAndUpdate(photo._id, {
-      $inc: { likes: 1 }
+      $inc: { likes: 1 },
     });
 
     res.json({
       success: true,
-      message: 'Photo liked'
+      message: "Photo liked",
     });
-
   } catch (error) {
-    console.error('Like photo error:', error);
+    console.error("Like photo error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to like photo',
-      error: error.message
+      message: "Failed to like photo",
+      error: error.message,
     });
   }
 };
@@ -734,13 +601,13 @@ exports.getMyPhotos = async (req, res) => {
     if (!req.user || !req.user._id) {
       return res.status(401).json({
         success: false,
-        message: 'User not authenticated'
+        message: "User not authenticated",
       });
     }
 
     const userId = req.user._id;
     const query = { userId };
-    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+    if (status && ["pending", "approved", "rejected"].includes(status)) {
       query.approvalStatus = status;
     }
 
@@ -749,24 +616,24 @@ exports.getMyPhotos = async (req, res) => {
 
     const [photos, total] = await Promise.all([
       Photo.find(query)
-        .populate('placeId', 'name city state country')
+        .populate("placeId", "name city state country")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum)
         .lean(),
-      Photo.countDocuments(query)
+      Photo.countDocuments(query),
     ]);
 
     // Generate Cloudinary URLs for each photo
-    photos.forEach(photo => {
+    photos.forEach((photo) => {
       const cloudinaryId = photo.cloudinaryId;
       const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-      
+
       // Generate different variants
       photo.thumbnailUrl = `https://res.cloudinary.com/${cloudName}/image/upload/w_400,h_300,c_fill,q_auto:good/${cloudinaryId}`;
-      
+
       photo.watermarkedUrl = `https://res.cloudinary.com/${cloudName}/image/upload/co_3148a5,g_south_east,l_text:Arial_24:%40%20ProtoMart,o_0.8,x_20,y_20/q_auto:good/${cloudinaryId}`;
-      
+
       photo.displayUrl = `https://res.cloudinary.com/${cloudName}/image/upload/w_1200,q_auto:good/${cloudinaryId}`;
     });
 
@@ -778,20 +645,21 @@ exports.getMyPhotos = async (req, res) => {
         totalPages: Math.ceil(total / limitNum),
         totalPhotos: total,
         limit: limitNum,
-        hasMore: skip + photos.length < total
-      }
+        hasMore: skip + photos.length < total,
+      },
     });
-
   } catch (error) {
-    console.error('Get my photos error:', error);
+    console.error("Get my photos error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch photos',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      message: "Failed to fetch photos",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : "Internal server error",
     });
   }
 };
-
 
 /**
  * Home page photos
@@ -799,16 +667,18 @@ exports.getMyPhotos = async (req, res) => {
  */
 exports.getHomePhotos = async (req, res) => {
   try {
-    const photos = await Photo.find({ approvalStatus: 'approved' })
-      .populate('userId', 'name profilePhoto')
-      .populate('placeId', 'name city country')
+    const photos = await Photo.find({ approvalStatus: "approved" })
+      .populate("userId", "name profilePhoto")
+      .populate("placeId", "name city country")
       .sort({ createdAt: -1 }) // latest first
       .limit(12);
 
-    const watermarkSettings = await WatermarkSetting.findOne({ isActive: true });
+    const watermarkSettings = await WatermarkSetting.findOne({
+      isActive: true,
+    });
 
     if (watermarkSettings) {
-      photos.forEach(photo => {
+      photos.forEach((photo) => {
         const variants = cloudinaryService.getPhotoVariants(
           photo.cloudinaryId,
           watermarkSettings
@@ -820,42 +690,38 @@ exports.getHomePhotos = async (req, res) => {
 
     res.json({
       success: true,
-      data: photos
+      data: photos,
     });
   } catch (err) {
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch home photos'
+      message: "Failed to fetch home photos",
     });
   }
 };
-
-
-
-
 
 exports.getNearbyPhotos = async (req, res) => {
   const coords = normalizeCoordinates(req.query.latitude, req.query.longitude);
   if (!coords) {
     return res.status(400).json({
       success: false,
-      message: 'Invalid latitude or longitude'
+      message: "Invalid latitude or longitude",
     });
   }
 
   const radius = parseInt(req.query.radius || 5000);
 
   const photos = await Photo.find({
-    approvalStatus: 'approved',
+    approvalStatus: "approved",
     location: {
       $near: {
-        $geometry: { type: 'Point', coordinates: coords },
-        $maxDistance: radius
-      }
-    }
+        $geometry: { type: "Point", coordinates: coords },
+        $maxDistance: radius,
+      },
+    },
   })
-    .populate('userId', 'name profilePhoto')
-    .populate('placeId', 'name city state country')
+    .populate("userId", "name profilePhoto")
+    .populate("placeId", "name city state country")
     .limit(50);
 
   res.json({ success: true, data: photos });

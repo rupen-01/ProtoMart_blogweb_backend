@@ -259,7 +259,9 @@ const photoSchema = new mongoose.Schema(
 
     cloudinaryId: { type: String, required: true, unique: true },
     originalUrl: { type: String, required: true },
-
+    watermarkedUrl: {
+      type: String,
+    },
     fileName: String,
     fileSize: Number,
     mimeType: String,
