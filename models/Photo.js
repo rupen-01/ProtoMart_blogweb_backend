@@ -318,6 +318,14 @@ const photoSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+// Add this AFTER schema definition
+
+photoSchema.index({
+  placeName: "text",
+  city: "text",
+  state: "text",
+  country: "text",
+});
 
 photoSchema.index({ location: "2dsphere" });
 photoSchema.index({ approvalStatus: 1, createdAt: -1 });

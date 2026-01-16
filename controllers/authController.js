@@ -29,12 +29,20 @@ const generateRefreshToken = (id) => {
  */
 exports.register = async (req, res) => {
   try {
-    const { name, email, password, phone, dateOfBirth, pinCode, role } =
-      req.body;
+    const {
+      name,
+      email,
+      password,
+      phone,
+      dateOfBirth,
+      pinCode,
+      role,
+    } = req.body;
 
-    console.log("Register request body:", req.body);
+    // console.log("Register request body:", req.body);
 
-    // Basic required field validation
+    /* ================= VALIDATION ================= */
+
     if (!name || !email || !password) {
       return res.status(400).json({
         success: false,
@@ -42,9 +50,8 @@ exports.register = async (req, res) => {
       });
     }
 
-    const normalizedEmail = String(email).toLowerCase().trim();
+    const normalizedEmail = email.toLowerCase().trim();
 
-    // Simple email format check
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
       return res.status(400).json({
         success: false,
@@ -60,19 +67,17 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Resolve address data only if pinCode provided
+    /* ================= PINCODE LOOKUP ================= */
+
     let addressData = null;
+
     if (pinCode) {
-      const pin = String(pinCode).trim();
       try {
-        const pinData = await geocodingService.getPinCodeDetails(pin);
-        if (
-          pinData &&
-          (pinData.fullAddress ||
-            pinData.city ||
-            pinData.state ||
-            pinData.country)
-        ) {
+        const pinData = await geocodingService.getPinCodeDetails(
+          String(pinCode).trim()
+        );
+
+        if (pinData) {
           addressData = {
             fullAddress: pinData.fullAddress || "",
             city: pinData.city || "",
@@ -80,17 +85,18 @@ exports.register = async (req, res) => {
             country: pinData.country || "",
           };
         }
-      } catch (geoErr) {
-        // don't fail registration for geocoding errors
-        console.error("Geocoding error:", geoErr && geoErr.message);
+      } catch (err) {
+        console.error("Geocoding failed:", err.message);
       }
     }
 
-    // Only allow known roles, default to 'user'
+    /* ================= ROLE ================= */
+
     const allowedRoles = ["user", "admin", "superadmin"];
     const selectedRole = allowedRoles.includes(role) ? role : "user";
 
-    // Build user payload
+    /* ================= USER CREATE ================= */
+
     const userPayload = {
       name,
       email: normalizedEmail,
@@ -100,49 +106,60 @@ exports.register = async (req, res) => {
 
     if (phone) userPayload.phone = phone;
     if (dateOfBirth) userPayload.dateOfBirth = dateOfBirth;
-    if (pinCode) userPayload.pinCode = String(pinCode).trim(); // Add pinCode to root
-
-    // Add address data if available
-    if (addressData && Object.keys(addressData).length > 0) {
-      userPayload.address = addressData;
-    }
+    if (pinCode) userPayload.pinCode = String(pinCode).trim();
+    if (addressData) userPayload.address = addressData;
 
     const user = await User.create(userPayload);
 
-    // create and save email verification token
+    /* ================= EMAIL TOKEN ================= */
+
     const verificationToken = crypto.randomBytes(20).toString("hex");
+
     user.emailVerificationToken = crypto
       .createHash("sha256")
       .update(verificationToken)
       .digest("hex");
+
     await user.save();
 
-    await emailService.sendVerificationEmail(
-      user.email,
-      user.name,
-      verificationToken
-    );
+    /* ================= SEND EMAIL (SAFE) ================= */
 
-    res.status(201).json({
+    let emailSent = true;
+
+    try {
+      await emailService.sendVerificationEmail(
+        user.email,
+        user.name,
+        verificationToken
+      );
+    } catch (emailError) {
+      emailSent = false;
+      console.error("Email send failed:", emailError.message);
+    }
+
+    /* ================= FINAL RESPONSE ================= */
+
+    return res.status(201).json({
       success: true,
-      message: "User registered successfully. Please verify your email.",
+      message: emailSent
+        ? "User registered successfully. Please verify your email."
+        : "User registered successfully, but verification email could not be sent. Please resend.",
       data: {
         id: user._id,
         email: user.email,
         role: user.role,
-        pinCode: user.pinCode,
-        address: user.address || null,
+        isEmailVerified: user.isEmailVerified,
       },
     });
   } catch (error) {
-    console.error("Registration error:", error);
-    res.status(500).json({
+    console.error("Registration error:", error.message);
+    return res.status(500).json({
       success: false,
-      message: "Registration failed",
-      error: error.message,
+      message: "Internal server error",
     });
   }
 };
+
 
 exports.getAllUsers = async (req, res) => {
   try {

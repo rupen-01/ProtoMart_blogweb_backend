@@ -726,3 +726,62 @@ exports.getNearbyPhotos = async (req, res) => {
 
   res.json({ success: true, data: photos });
 };
+
+
+
+// ========== filter photos by location name ==========
+/**
+ * Search photos by location name
+ * Supports village, city, district, area, state, country, continent
+ * GET /api/photos/search
+ */
+exports.searchPhotosByLocation = async (req, res) => {
+  try {
+    const { q, page = 1, limit = 20 } = req.query;
+
+    if (!q || q.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        message: "Search query is required",
+      });
+    }
+
+    const skip = (page - 1) * limit;
+
+    // 🔍 Regex for partial + case-insensitive search
+    const regex = new RegExp(q, "i");
+
+    const filter = {
+      approvalStatus: "approved",
+      $or: [
+        { placeName: regex },
+        { city: regex },
+        { state: regex },
+        { country: regex },
+      ],
+    };
+
+    const photos = await Photo.find(filter)
+      .populate("userId", "name profilePhoto")
+      .populate("placeId", "name city state country")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Photo.countDocuments(filter);
+
+    res.status(200).json({
+      success: true,
+      total,
+      page: Number(page),
+      pages: Math.ceil(total / limit),
+      data: photos,
+    });
+  } catch (error) {
+    console.error("Search Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
