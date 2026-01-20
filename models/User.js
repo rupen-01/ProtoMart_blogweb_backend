@@ -29,6 +29,12 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
 
+    // 🔴 REQUIRED FOR GOOGLE PHOTOS
+    googleAccessToken: {
+      type: String,
+      default: null,
+    },
+
     phone: {
       type: String,
       trim: true,
@@ -111,12 +117,11 @@ userSchema.pre("save", async function () {
   this.password = await bcrypt.hash(this.password, salt);
 });
 
-
 /**
  * Password match method
  */
 userSchema.methods.matchPassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
+  return bcrypt.compare(enteredPassword, this.password);
 };
 
 module.exports = mongoose.model("User", userSchema);

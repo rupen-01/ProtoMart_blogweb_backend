@@ -7,7 +7,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.GOOGLE_REDIRECT_URI
+      callbackURL: process.env.GOOGLE_REDIRECT_URI,
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
@@ -19,25 +19,30 @@ passport.use(
 
         let user = await User.findOne({ email });
 
-        // 👇 Agar user pehle se hai
+        // 🔹 Existing user
         if (user) {
           if (!user.googleId) {
             user.googleId = profile.id;
             user.provider = "google";
             user.isEmailVerified = true;
-            await user.save();
           }
+
+          // 🔴 REQUIRED FOR GOOGLE PHOTOS
+          user.googleAccessToken = accessToken;
+
+          await user.save();
           return done(null, user);
         }
 
-        // 👇 New user → auto signup
+        // 🔹 New Google user (auto signup)
         user = await User.create({
           googleId: profile.id,
           name: profile.displayName,
           email,
-          profilePhoto: profile.photos?.[0]?.value || "",
+          profilePhoto: profile.photos?.[0]?.value || null,
           provider: "google",
-          isEmailVerified: true
+          isEmailVerified: true,
+          googleAccessToken: accessToken,
         });
 
         return done(null, user);

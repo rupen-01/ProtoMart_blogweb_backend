@@ -22,7 +22,12 @@ router.get("/google", (req, res, next) => {
   console.log("Google auth route hit");
   next();
 }, passport.authenticate("google", {
-  scope: ["profile", "email"]
+  scope: [
+  "profile",
+  "email",
+  "https://www.googleapis.com/auth/photoslibrary.readonly"
+]
+
 }));
 
 
