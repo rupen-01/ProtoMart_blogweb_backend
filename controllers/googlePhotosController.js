@@ -65,7 +65,7 @@ exports.syncFromLink = async (req, res) => {
       });
     }
 
-    const { shareLink } = req.body;
+    const { shareLink, latitude, longitude, placeId } = req.body;
     const userId = req.user._id;
 
     if (!shareLink) {
@@ -75,9 +75,17 @@ exports.syncFromLink = async (req, res) => {
       });
     }
 
+    // ✅ Prepare manual coordinates if provided
+    const manualCoordinates = (latitude && longitude) 
+      ? { latitude: parseFloat(latitude), longitude: parseFloat(longitude) } 
+      : null;
+
+    // ✅ Pass coordinates and placeId to service
     const results = await googlePhotosService.syncFromShareLink(
       userId,
-      shareLink
+      shareLink,
+      manualCoordinates,
+      placeId || null
     );
 
     res.json({

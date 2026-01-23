@@ -246,7 +246,6 @@
 // photoSchema.index({ cloudinaryId: 1 });
 
 // module.exports = mongoose.model('Photo', photoSchema);
-
 const mongoose = require("mongoose");
 
 const photoSchema = new mongoose.Schema(
@@ -310,16 +309,36 @@ const photoSchema = new mongoose.Schema(
     views: { type: Number, default: 0 },
     likes: { type: Number, default: 0 },
 
+    // ✅ FIXED: Added 'google_photos' to the source enum
     source: {
       type: String,
-      enum: ["direct_upload", "bulk_upload", "admin_upload"],
+      enum: ["direct_upload", "bulk_upload", "admin_upload", "google_photos"],
       default: "direct_upload",
+    },
+
+    // ✅ ADDED: Fields for Google Photos sync
+    googlePhotoId: {
+      type: String,
+      sparse: true, // Allows null values, creates index only for non-null
+      index: true
+    },
+
+    // ✅ ADDED: Store EXIF data from photos
+    exifData: {
+      type: Object,
+      default: {}
+    },
+
+    // ✅ ADDED: Dimensions for better display
+    dimensions: {
+      width: Number,
+      height: Number
     },
   },
   { timestamps: true }
 );
-// Add this AFTER schema definition
 
+// Add this AFTER schema definition
 photoSchema.index({
   placeName: "text",
   city: "text",
@@ -329,5 +348,9 @@ photoSchema.index({
 
 photoSchema.index({ location: "2dsphere" });
 photoSchema.index({ approvalStatus: 1, createdAt: -1 });
+
+// ✅ ADDED: Index for Google Photos sync tracking
+photoSchema.index({ userId: 1, googlePhotoId: 1 });
+photoSchema.index({ source: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Photo", photoSchema);

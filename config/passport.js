@@ -19,6 +19,7 @@ passport.use(
 
         let user = await User.findOne({ email });
 
+        console.log("Google profile:", profile, user, accessToken);
         // 🔹 Existing user
         if (user) {
           if (!user.googleId) {
