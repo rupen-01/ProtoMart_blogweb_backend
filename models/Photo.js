@@ -329,6 +329,25 @@ const photoSchema = new mongoose.Schema(
       default: {}
     },
 
+    experienceDate: {
+  type: Date,
+},
+experiencePerson: {
+  type: String,
+  trim: true
+},
+uploadedByPerson: {
+  type: String,
+  trim: true
+},
+experienceDescription: {
+  type: String,
+  trim: true
+},
+zipCode: {
+  type: String,
+  trim: true
+},
     // ✅ ADDED: Dimensions for better display
     dimensions: {
       width: Number,

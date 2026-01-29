@@ -137,6 +137,15 @@ exports.bulkUpload = async (req, res) => {
         mediaType: file.mimetype.startsWith("video") ? "video" : "image",
         source: "bulk_upload",
       };
+      if (req.body.experienceDate)
+        photoData.experienceDate = req.body.experienceDate;
+      if (req.body.experiencePerson)
+        photoData.experiencePerson = req.body.experiencePerson;
+      if (req.body.uploadedByPerson)
+        photoData.uploadedByPerson = req.body.uploadedByPerson;
+      if (req.body.experienceDescription)
+        photoData.experienceDescription = req.body.experienceDescription;
+      if (req.body.zipCode) photoData.zipCode = req.body.zipCode;
 
       // ================= ADD LOCATION DATA =================
       if (place?.location?.coordinates) {
@@ -726,8 +735,6 @@ exports.getNearbyPhotos = async (req, res) => {
 
   res.json({ success: true, data: photos });
 };
-
-
 
 // ========== filter photos by location name ==========
 /**
