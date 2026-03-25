@@ -3,75 +3,29 @@ const router = express.Router();
 
 const adminController = require('../controllers/adminController');
 const { protect, admin } = require('../middlewares/authMiddleware');
-const upload = require('../middlewares/uploadMiddleware'); // 👈 watermark image ke liye
+const upload = require('../middlewares/uploadMiddleware');
 
-/**
- * =======================
- * ADMIN ROUTES
- * Must be logged in + admin
- * =======================
- */
-router.use(protect);
-router.use(admin);
+router.get('/watermark', adminController.getWatermarkSettings);
 
-/* ===================== PHOTOS ===================== */
-
-// Get all pending photos (pagination)
-router.get(
-  '/photos/pending',
-  adminController.getPendingPhotos
-);
-
-// Approve photo
-router.post(
-  '/photos/:id/approve',
-  adminController.approvePhoto
-);
-
-// Reject photo
-router.post(
-  '/photos/:id/reject',
-  adminController.rejectPhoto
-);
-
-/* ===================== WATERMARK ===================== */
-
-// Get active watermark settings
-router.get(
-  '/watermark',
-  adminController.getWatermarkSettings
-);
-
-/**
- * Update watermark settings
- * Supports:
- * - text watermark
- * - image watermark
- * - opacity
- * - x,y position
- */
 router.put(
   '/watermark',
-  upload.single('watermarkImage'), // 👈 OPTIONAL image upload
+  upload.single('watermarkImage'),
   adminController.updateWatermarkSettings
 );
 
-/* ===================== DASHBOARD ===================== */
+router.use(protect);
+router.use(admin);
 
-//* ===================== DASHBOARD ===================== */
+router.get('/photos/pending', adminController.getPendingPhotos);
+
+router.post('/photos/:id/approve', adminController.approvePhoto);
+
+router.post('/photos/:id/reject', adminController.rejectPhoto);
 
 router.get('/stats', adminController.getStats);
 
-/* ===================== REWARD SETTINGS ===================== */
+router.get('/rewards/settings', adminController.getRewardSetting);
 
-router.get(
-  '/rewards/settings',
-  adminController.getRewardSetting
-);
-
-router.put(
-  '/rewards/settings',
-  adminController.updateRewardSetting
-);
+router.put('/rewards/settings', adminController.updateRewardSetting);
 
 module.exports = router;
