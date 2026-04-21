@@ -14,6 +14,7 @@ router.post(
 );
 
 router.post("/sync", protect, googlePhotosController.syncFromLink);
+router.get("/progress/:jobId", protect, googlePhotosController.getSyncProgress);
 router.get("/sync-status", protect, googlePhotosController.getSyncStatus);
 
 module.exports = router;

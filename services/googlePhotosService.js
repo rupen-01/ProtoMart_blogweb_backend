@@ -1,27 +1,31 @@
 const axios = require("axios");
+const crypto = require("crypto");
 const Photo = require("../models/Photo");
 const Place = require("../models/Place");
+const WatermarkSetting = require("../models/WatermarkSetting");
 const cloudinaryService = require("./cloudinaryService");
 const geocodingService = require("./geocodingService");
+const googlePhotosJobStore = require("./googlePhotosJobStore");
+
+const ALBUM_FETCH_TIMEOUT_MS = 60000;
+const IMAGE_DOWNLOAD_TIMEOUT_MS = 60000;
+const IMAGE_PROCESS_TIMEOUT_MS = 120000;
+const IMAGE_RETRY_COUNT = 2;
+const IMAGE_RETRY_DELAY_MS = 1500;
+const IMAGE_CONCURRENCY = 3;
 
 class GooglePhotosService {
-  /**
-   * Extract album ID from share link
-   */
   extractAlbumId(shareLink) {
     try {
-      shareLink = shareLink.trim();
+      const trimmedLink = shareLink.trim();
 
-      // Pattern 1: https://photos.app.goo.gl/XXXXX
-      let match = shareLink.match(/photos\.app\.goo\.gl\/([a-zA-Z0-9-_]+)/);
+      let match = trimmedLink.match(/photos\.app\.goo\.gl\/([a-zA-Z0-9-_]+)/);
       if (match) return match[1];
 
-      // Pattern 2: https://photos.google.com/share/XXXXX
-      match = shareLink.match(/photos\.google\.com\/share\/([a-zA-Z0-9-_]+)/);
+      match = trimmedLink.match(/photos\.google\.com\/share\/([a-zA-Z0-9-_]+)/);
       if (match) return match[1];
 
-      // Pattern 3: Direct album link
-      match = shareLink.match(
+      match = trimmedLink.match(
         /photos\.google\.com\/.*\/album\/([a-zA-Z0-9-_]+)/
       );
       if (match) return match[1];
@@ -33,21 +37,11 @@ class GooglePhotosService {
     }
   }
 
-  /**
-   * Validate if share link is accessible
-   */
   async validateShareLink(shareLink) {
     try {
       const response = await axios.get(shareLink, {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          Accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.5",
-          Referer: "https://photos.google.com/",
-        },
-        timeout: 10000,
+        headers: this.getGooglePhotosPageHeaders(),
+        timeout: ALBUM_FETCH_TIMEOUT_MS,
         maxRedirects: 5,
       });
 
@@ -55,7 +49,7 @@ class GooglePhotosService {
 
       return {
         valid: response.status === 200,
-        title: title,
+        title,
       };
     } catch (error) {
       console.error("Validation error:", error.message);
@@ -68,10 +62,8 @@ class GooglePhotosService {
   }
 
   extractTitleFromHtml(html) {
-    // Try multiple methods to extract title
     let title = null;
 
-    // Method 1: og:title meta tag
     const ogTitleMatch = html.match(
       /<meta property="og:title" content="([^"]+)"/
     );
@@ -79,7 +71,6 @@ class GooglePhotosService {
       title = ogTitleMatch[1];
     }
 
-    // Method 2: Regular title tag
     if (!title) {
       const titleMatch = html.match(/<title>(.*?)<\/title>/);
       if (titleMatch) {
@@ -87,7 +78,6 @@ class GooglePhotosService {
       }
     }
 
-    // Clean up title
     if (title) {
       title = title.replace(" - Google Photos", "").trim();
     }
@@ -95,35 +85,20 @@ class GooglePhotosService {
     return title || "Shared Album";
   }
 
-  /**
-   * Scrape photos from shared album (NO AUTH NEEDED)
-   * FIXED VERSION - properly extracts complete URLs
-   */
   async scrapeSharedAlbum(shareLink) {
     try {
       console.log("🔍 Fetching album page...");
 
       const response = await axios.get(shareLink, {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          Accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.5",
-          Referer: "https://photos.google.com/",
-          Connection: "keep-alive",
-        },
-        timeout: 15000,
+        headers: this.getGooglePhotosPageHeaders(),
+        timeout: ALBUM_FETCH_TIMEOUT_MS,
       });
 
       const html = response.data;
       console.log(`📄 HTML received, length: ${html.length} characters`);
 
-      // Extract photo URLs from HTML
       const photoUrls = new Set();
 
-      // FIXED: Better regex patterns to capture complete URLs
-      // Pattern 1: Standard lh3.googleusercontent.com URLs
       const pattern1 =
         /https:\/\/lh3\.googleusercontent\.com\/[a-zA-Z0-9_-]{20,}/g;
       const matches1 = html.match(pattern1);
@@ -131,14 +106,12 @@ class GooglePhotosService {
       if (matches1) {
         console.log(`✅ Pattern 1 found ${matches1.length} matches`);
         matches1.forEach((url) => {
-          // Only add URLs that are long enough (complete URLs are typically 60+ chars)
           if (url.length > 50) {
             photoUrls.add(url);
           }
         });
       }
 
-      // Pattern 2: URLs with additional parameters (capture everything before size params)
       const pattern2 =
         /https:\/\/lh3\.googleusercontent\.com\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*/g;
       const matches2 = html.match(pattern2);
@@ -146,14 +119,13 @@ class GooglePhotosService {
       if (matches2) {
         console.log(`✅ Pattern 2 found ${matches2.length} matches`);
         matches2.forEach((url) => {
-          const baseUrl = url.split("=")[0]; // Remove size parameters if any
+          const baseUrl = url.split("=")[0];
           if (baseUrl.length > 50) {
             photoUrls.add(baseUrl);
           }
         });
       }
 
-      // Pattern 3: Look for URLs in data attributes and JSON
       const pattern3 =
         /"(https:\/\/lh3\.googleusercontent\.com\/[a-zA-Z0-9_\/-]+)"/g;
       let match3;
@@ -167,7 +139,6 @@ class GooglePhotosService {
       const uniqueUrls = Array.from(photoUrls);
       console.log(`📸 Total unique photos found: ${uniqueUrls.length}`);
 
-      // Log first few URLs for debugging
       if (uniqueUrls.length > 0) {
         console.log("Sample URLs:", uniqueUrls.slice(0, 3));
       }
@@ -181,20 +152,9 @@ class GooglePhotosService {
     }
   }
 
-  /**
-   * Download photo from Google Photos (NO AUTH NEEDED)
-   * FIXED VERSION - properly handles download URLs
-   */
   async downloadPhotoFromUrl(photoUrl) {
     try {
-      // FIXED: Ensure we have a complete URL and add proper size parameter
-      let downloadUrl = photoUrl;
-
-      // Remove any existing size parameters
-      downloadUrl = downloadUrl.split("=")[0];
-
-      // Add size parameter for full resolution
-      // =d for download, or =w2048-h2048 for specific size
+      let downloadUrl = photoUrl.split("=")[0];
       downloadUrl = `${downloadUrl}=w2048-h2048`;
 
       console.log(`⬇️ Downloading from: ${downloadUrl.substring(0, 80)}...`);
@@ -207,9 +167,9 @@ class GooglePhotosService {
           Referer: "https://photos.google.com/",
           Accept: "image/webp,image/apng,image/*,*/*;q=0.8",
         },
-        maxContentLength: 50 * 1024 * 1024, // 50MB
-        timeout: 60000, // 60 seconds for large files
-        validateStatus: function (status) {
+        maxContentLength: 50 * 1024 * 1024,
+        timeout: IMAGE_DOWNLOAD_TIMEOUT_MS,
+        validateStatus(status) {
           return status >= 200 && status < 300;
         },
       });
@@ -225,29 +185,28 @@ class GooglePhotosService {
     } catch (error) {
       console.error("❌ Error downloading photo:", error.message);
 
-      // Provide more specific error messages
       if (error.code === "ECONNABORTED") {
         throw new Error("Download timeout - file may be too large");
-      } else if (error.response?.status === 403) {
-        throw new Error("Access forbidden - photo may be private");
-      } else if (error.response?.status === 404) {
-        throw new Error("Photo not found");
-      } else {
-        throw new Error(`Failed to download photo: ${error.message}`);
       }
+
+      if (error.response?.status === 403) {
+        throw new Error("Access forbidden - photo may be private");
+      }
+
+      if (error.response?.status === 404) {
+        throw new Error("Photo not found");
+      }
+
+      throw new Error(`Failed to download photo: ${error.message}`);
     }
   }
 
-  /**
-   * Detect mimetype from buffer
-   */
   detectMimetype(buffer) {
-    // Check file signature (magic numbers)
     const signatures = {
       ffd8ff: "image/jpeg",
       "89504e47": "image/png",
       47494638: "image/gif",
-      52494646: "image/webp", // RIFF (WebP uses RIFF container)
+      52494646: "image/webp",
       "424d": "image/bmp",
     };
 
@@ -259,38 +218,50 @@ class GooglePhotosService {
       }
     }
 
-    // Default to JPEG if unknown
     console.log("⚠️ Unknown file signature, defaulting to image/jpeg");
     return "image/jpeg";
   }
 
-  /**
-   * Sync photos from shared album link (NO AUTH NEEDED)
-   * FIXED: Now passes mimetype to uploadMedia
-   */
-  async syncFromShareLink(
-    userId,
-    shareLink,
-    manualCoordinates = null,
-    placeId = null
-  ) {
-    try {
-      console.log(
-        `🔄 Starting sync for user ${userId} from link: ${shareLink}`
-      );
+  startSyncJob(jobId, syncOptions) {
+    setImmediate(() => {
+      this.runSyncJob(jobId, syncOptions).catch((error) => {
+        console.error(`❌ [GooglePhotosJob:${jobId}] Unhandled job error:`, error);
+        googlePhotosJobStore.markFailed(
+          jobId,
+          error.message || "Google Photos sync failed"
+        );
+      });
+    });
+  }
 
-      // Validate link first
+  async runSyncJob(jobId, syncOptions) {
+    const {
+      userId,
+      shareLink,
+      manualCoordinates = null,
+      placeId = null,
+      metadata = {},
+    } = syncOptions;
+
+    console.log(`🚀 [GooglePhotosJob:${jobId}] Starting background sync`);
+
+    googlePhotosJobStore.updateJob(jobId, {
+      status: "processing",
+      progress: 0,
+      processedImages: 0,
+      totalImages: 0,
+      error: null,
+    });
+
+    try {
       const validation = await this.validateShareLink(shareLink);
       if (!validation.valid) {
         throw new Error(validation.error);
       }
 
-      console.log(`📁 Album: ${validation.title}`);
+      console.log(`📁 [GooglePhotosJob:${jobId}] Album: ${validation.title}`);
 
-      // Scrape photo URLs from shared album
       const photoUrls = await this.scrapeSharedAlbum(shareLink);
-      console.log(`📸 Found ${photoUrls.length} photos in album`);
-
       if (photoUrls.length === 0) {
         throw new Error(
           "No photos found in album. Make sure album has photos and is publicly shared."
@@ -305,230 +276,375 @@ class GooglePhotosService {
         errors: [],
       };
 
-      // Process each photo with delay to avoid rate limiting
-      for (let i = 0; i < photoUrls.length; i++) {
-        const photoUrl = photoUrls[i];
+      googlePhotosJobStore.updateJob(jobId, {
+        status: "processing",
+        totalImages: photoUrls.length,
+        processedImages: 0,
+        progress: 0,
+        results,
+        albumTitle: validation.title,
+      });
+
+      await this.processPhotosWithConcurrency({
+        jobId,
+        photoUrls,
+        userId,
+        shareLink,
+        manualCoordinates,
+        placeId,
+        metadata,
+        results,
+      });
+
+      console.log(`✅ [GooglePhotosJob:${jobId}] Sync completed`, results);
+      googlePhotosJobStore.markCompleted(jobId, results);
+    } catch (error) {
+      console.error(`❌ [GooglePhotosJob:${jobId}] Sync failed:`, error.message);
+      googlePhotosJobStore.markFailed(
+        jobId,
+        error.message || "Failed to sync photos"
+      );
+    }
+  }
+
+  async processPhotosWithConcurrency({
+    jobId,
+    photoUrls,
+    userId,
+    shareLink,
+    manualCoordinates,
+    placeId,
+    metadata,
+    results,
+  }) {
+    let currentIndex = 0;
+    const workerCount = Math.min(IMAGE_CONCURRENCY, photoUrls.length);
+
+    const runWorker = async (workerId) => {
+      while (currentIndex < photoUrls.length) {
+        const photoIndex = currentIndex++;
+        const photoUrl = photoUrls[photoIndex];
 
         try {
-          console.log(`\n📸 Processing photo ${i + 1}/${photoUrls.length}`);
-
-          // Create unique hash for this photo
-          const crypto = require("crypto");
-          const photoHash = crypto
-            .createHash("md5")
-            .update(photoUrl)
-            .digest("hex");
-
-          // Check if photo already synced
-          const existingPhoto = await Photo.findOne({
-            userId,
-            googlePhotoId: photoHash,
-          });
-
-          if (existingPhoto) {
-            results.skipped++;
-            console.log(`⏭️ Photo already synced: ${photoHash}`);
-            continue;
-          }
-
-          // Download photo
-          const photoBuffer = await this.downloadPhotoFromUrl(photoUrl);
-
-          // ✅ FIX: Detect mimetype from buffer
-          const mimetype = this.detectMimetype(photoBuffer);
-          console.log(`📄 Detected mimetype: ${mimetype}`);
-
-          // Extract EXIF data
-          const { exifData, coordinates } =
-            cloudinaryService.extractExifData(photoBuffer);
-
-          // ✅ FIX: Pass mimetype as second parameter
-          const cloudinaryResult = await cloudinaryService.uploadMedia(
-            photoBuffer,
-            mimetype, // ← Added mimetype parameter
-            {
-              folder: `${process.env.CLOUDINARY_FOLDER}/users/${userId}/google-photos`,
-            }
-          );
-
-          // ✅ ADDED: Fetch watermark settings (matching bulkUpload behavior)
-          const WatermarkSetting = require("../models/WatermarkSetting");
-          const watermarkSettings = await WatermarkSetting.findOne({
-            isActive: true,
-          });
-
-          let watermarkedUrl = cloudinaryResult.secure_url;
-
-          // Apply watermark if settings exist
-          if (watermarkSettings) {
-            try {
-              watermarkedUrl = cloudinaryService.getWatermarkedUrl(
-                cloudinaryResult.public_id,
-                watermarkSettings
-              );
-              console.log("✅ Watermark applied to Google Photo");
-            } catch (wmError) {
-              console.error("⚠️ Watermark failed:", wmError.message);
-              // Fallback to original URL
-            }
-          }
-
-          // Prepare photo data
-          const photoData = {
-            userId,
-            cloudinaryId: cloudinaryResult.public_id,
-            originalUrl: cloudinaryResult.secure_url,
-            watermarkedUrl, // ✅ Added watermarked URL
-            fileName: `google_photo_${photoHash}.jpg`,
-            fileSize: cloudinaryResult.bytes,
-            dimensions: {
-              width: cloudinaryResult.width,
-              height: cloudinaryResult.height,
-            },
-            mimeType:
-              cloudinaryResult.format === "jpg"
-                ? "image/jpeg"
-                : `image/${cloudinaryResult.format}`,
-            mediaType: "image", // ✅ Added mediaType
-            exifData,
-            source: "google_photos",
-            googlePhotoId: photoHash,
-            approvalStatus: "pending",
-          };
-
-          let finalCoordinates = null;
-
-          // Priority 1: Use manual coordinates from frontend if provided
-          if (
-            manualCoordinates &&
-            manualCoordinates.latitude &&
-            manualCoordinates.longitude
-          ) {
-            finalCoordinates = [
-              manualCoordinates.longitude,
-              manualCoordinates.latitude,
-            ];
-            console.log(
-              "📍 Using manual coordinates from frontend:",
-              finalCoordinates
-            );
-          }
-          // Priority 2: Fall back to EXIF coordinates if available
-          else if (coordinates && coordinates[0] && coordinates[1]) {
-            finalCoordinates = coordinates;
-            console.log("📍 Using EXIF coordinates:", finalCoordinates);
-          }
-
-          // If we have coordinates, process location
-          if (finalCoordinates) {
-            photoData.location = {
-              type: "Point",
-              coordinates: finalCoordinates,
-            };
-
-            try {
-              console.log("🔍 Reverse geocoding coordinates...");
-              const locationData = await geocodingService.reverseGeocode(
-                finalCoordinates[1], // latitude
-                finalCoordinates[0] // longitude
-              );
-
-              if (locationData) {
-                console.log("✅ Location data found:", locationData);
-
-                photoData.placeName = locationData.placeName;
-                photoData.city = locationData.city;
-                photoData.state = locationData.state;
-                photoData.country = locationData.country;
-
-                // Use provided placeId or find/create place
-                if (placeId) {
-                  console.log("✅ Using provided placeId:", placeId);
-                  photoData.placeId = placeId;
-
-                  // Increment photo count
-                  await Place.findByIdAndUpdate(placeId, {
-                    $inc: { photoCount: 1 },
-                  });
-                } else {
-                  // Find or create place
-                  let place = await Place.findOne({
-                    location: {
-                      $near: {
-                        $geometry: {
-                          type: "Point",
-                          coordinates: finalCoordinates,
-                        },
-                        $maxDistance: 1000,
-                      },
-                    },
-                  });
-
-                  if (!place) {
-                    console.log(
-                      "📍 Creating new place:",
-                      locationData.placeName
-                    );
-                    place = await Place.create({
-                      name: locationData.placeName,
-                      location: {
-                        type: "Point",
-                        coordinates: finalCoordinates,
-                      },
-                      city: locationData.city,
-                      state: locationData.state,
-                      country: locationData.country,
-                      photoCount: 0,
-                    });
-                  } else {
-                    console.log("✅ Found existing place:", place.name);
-                  }
-
-                  photoData.placeId = place._id;
-
-                  await Place.findByIdAndUpdate(place._id, {
-                    $inc: { photoCount: 1 },
-                  });
-                }
-              }
-            } catch (geoError) {
-              console.error("❌ Geocoding error:", geoError.message);
-            }
-          } else {
-            console.log(
-              "⚠️ No coordinates available - photo will not have location data"
-            );
-          }
-
-          // Save photo
-          await Photo.create(photoData);
-          results.uploaded++;
           console.log(
-            `✅ Successfully uploaded photo ${i + 1}/${photoUrls.length}`
+            `📸 [GooglePhotosJob:${jobId}] Worker ${workerId} processing photo ${photoIndex + 1}/${photoUrls.length}`
           );
 
-          // IMPORTANT: Add delay between downloads to avoid rate limiting
-          if (i < photoUrls.length - 1) {
-            console.log("⏳ Waiting 2 seconds before next download...");
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-          }
+          const outcome = await this.withRetry(
+            () =>
+              this.withTimeout(
+                () =>
+                  this.processSinglePhoto({
+                    userId,
+                    shareLink,
+                    photoUrl,
+                    manualCoordinates,
+                    placeId,
+                    metadata,
+                  }),
+                IMAGE_PROCESS_TIMEOUT_MS,
+                "Image processing timeout"
+              ),
+            {
+              retries: IMAGE_RETRY_COUNT,
+              delayMs: IMAGE_RETRY_DELAY_MS,
+              label: `photo ${photoIndex + 1}`,
+            }
+          );
+
+          results[outcome.status] += 1;
         } catch (photoError) {
-          results.failed++;
+          results.failed += 1;
           results.errors.push({
-            photoUrl: photoUrl.substring(0, 80) + "...", // Truncate for readability
+            photoUrl: `${photoUrl.substring(0, 80)}...`,
             error: photoError.message,
           });
-          console.error(`❌ Failed to process photo:`, photoError.message);
+          console.error(
+            `❌ [GooglePhotosJob:${jobId}] Photo ${photoIndex + 1} failed:`,
+            photoError.message
+          );
+        } finally {
+          const processedImages =
+            results.uploaded + results.skipped + results.failed;
+          const progress = Math.min(
+            100,
+            Math.round((processedImages / photoUrls.length) * 100)
+          );
+
+          googlePhotosJobStore.updateJob(jobId, {
+            status: "processing",
+            processedImages,
+            totalImages: photoUrls.length,
+            progress,
+            results: {
+              ...results,
+              errors: [...results.errors],
+            },
+          });
         }
       }
+    };
 
-      console.log("\n✅ Sync completed:", results);
-      return results;
-    } catch (error) {
-      console.error("❌ Sync from share link error:", error);
-      throw error;
+    await Promise.all(
+      Array.from({ length: workerCount }, (_, index) => runWorker(index + 1))
+    );
+  }
+
+  async processSinglePhoto({
+    userId,
+    shareLink,
+    photoUrl,
+    manualCoordinates,
+    placeId,
+    metadata,
+  }) {
+    const photoHash = crypto.createHash("md5").update(photoUrl).digest("hex");
+
+    const existingPhoto = await Photo.findOne({
+      userId,
+      googlePhotoId: photoHash,
+    });
+
+    if (existingPhoto) {
+      console.log(`⏭️ Photo already synced: ${photoHash}`);
+      return { status: "skipped" };
     }
+
+    const photoBuffer = await this.downloadPhotoFromUrl(photoUrl);
+    const mimetype = this.detectMimetype(photoBuffer);
+    const { exifData, coordinates } =
+      cloudinaryService.extractExifData(photoBuffer);
+
+    const cloudinaryResult = await cloudinaryService.uploadMedia(
+      photoBuffer,
+      mimetype,
+      {
+        folder: `${process.env.CLOUDINARY_FOLDER}/users/${userId}/google-photos`,
+      }
+    );
+
+    const watermarkSettings = await WatermarkSetting.findOne({ isActive: true });
+    let watermarkedUrl = cloudinaryResult.secure_url;
+
+    if (watermarkSettings) {
+      try {
+        watermarkedUrl = cloudinaryService.getWatermarkedUrl(
+          cloudinaryResult.public_id,
+          watermarkSettings
+        );
+      } catch (wmError) {
+        console.error("⚠️ Watermark failed:", wmError.message);
+      }
+    }
+
+    const photoData = {
+      userId,
+      cloudinaryId: cloudinaryResult.public_id,
+      originalUrl: cloudinaryResult.secure_url,
+      watermarkedUrl,
+      fileName: `google_photo_${photoHash}.jpg`,
+      fileSize: cloudinaryResult.bytes,
+      dimensions: {
+        width: cloudinaryResult.width,
+        height: cloudinaryResult.height,
+      },
+      mimeType:
+        cloudinaryResult.format === "jpg"
+          ? "image/jpeg"
+          : `image/${cloudinaryResult.format}`,
+      mediaType: "image",
+      exifData,
+      source: "google_photos",
+      googlePhotoId: photoHash,
+      approvalStatus: "pending",
+      googleAlbumId: this.extractAlbumId(shareLink),
+      ...this.buildMetadataFields(metadata),
+    };
+
+    const finalCoordinates = this.resolveCoordinates({
+      manualCoordinates,
+      coordinates,
+    });
+
+    if (finalCoordinates) {
+      photoData.location = {
+        type: "Point",
+        coordinates: finalCoordinates,
+      };
+
+      try {
+        const locationData = await geocodingService.reverseGeocode(
+          finalCoordinates[1],
+          finalCoordinates[0]
+        );
+
+        if (locationData) {
+          photoData.placeName = locationData.placeName;
+          photoData.city = locationData.city;
+          photoData.state = locationData.state;
+          photoData.country = locationData.country;
+
+          if (placeId) {
+            photoData.placeId = placeId;
+            await Place.findByIdAndUpdate(placeId, {
+              $inc: { photoCount: 1 },
+            });
+          } else {
+            const resolvedPlace = await this.findOrCreatePlace(
+              finalCoordinates,
+              locationData
+            );
+
+            photoData.placeId = resolvedPlace._id;
+            await Place.findByIdAndUpdate(resolvedPlace._id, {
+              $inc: { photoCount: 1 },
+            });
+          }
+        }
+      } catch (geoError) {
+        console.error("❌ Geocoding error:", geoError.message);
+      }
+    }
+
+    await Photo.create(photoData);
+    console.log(`✅ Successfully uploaded Google Photo ${photoHash}`);
+
+    return { status: "uploaded" };
+  }
+
+  buildMetadataFields(metadata) {
+    const cleanedMetadata = {};
+
+    if (metadata.experienceDate) {
+      cleanedMetadata.experienceDate = metadata.experienceDate;
+    }
+    if (metadata.experiencePerson) {
+      cleanedMetadata.experiencePerson = metadata.experiencePerson;
+    }
+    if (metadata.uploadedByPerson) {
+      cleanedMetadata.uploadedByPerson = metadata.uploadedByPerson;
+    }
+    if (metadata.experienceDescription) {
+      cleanedMetadata.experienceDescription = metadata.experienceDescription;
+    }
+    if (metadata.zipCode) {
+      cleanedMetadata.zipCode = metadata.zipCode;
+    }
+
+    return cleanedMetadata;
+  }
+
+  resolveCoordinates({ manualCoordinates, coordinates }) {
+    if (
+      manualCoordinates &&
+      Number.isFinite(manualCoordinates.latitude) &&
+      Number.isFinite(manualCoordinates.longitude)
+    ) {
+      return [manualCoordinates.longitude, manualCoordinates.latitude];
+    }
+
+    if (
+      coordinates &&
+      Number.isFinite(coordinates[0]) &&
+      Number.isFinite(coordinates[1])
+    ) {
+      return coordinates;
+    }
+
+    return null;
+  }
+
+  async findOrCreatePlace(finalCoordinates, locationData) {
+    let place = await Place.findOne({
+      location: {
+        $near: {
+          $geometry: {
+            type: "Point",
+            coordinates: finalCoordinates,
+          },
+          $maxDistance: 1000,
+        },
+      },
+    });
+
+    if (!place) {
+      place = await Place.create({
+        name: locationData.placeName,
+        location: {
+          type: "Point",
+          coordinates: finalCoordinates,
+        },
+        city: locationData.city,
+        state: locationData.state,
+        country: locationData.country,
+        photoCount: 0,
+      });
+    }
+
+    return place;
+  }
+
+  async withRetry(operation, { retries, delayMs, label }) {
+    let lastError;
+
+    for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        console.error(
+          `⚠️ ${label} attempt ${attempt} failed: ${error.message}`
+        );
+
+        if (attempt <= retries) {
+          await this.sleep(delayMs * attempt);
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
+  async withTimeout(operation, timeoutMs, timeoutMessage) {
+    let timer;
+
+    try {
+      return await Promise.race([
+        operation(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(timeoutMessage));
+          }, timeoutMs);
+
+          timer.unref?.();
+        }),
+      ]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  sleep(ms) {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  getGooglePhotosPageHeaders() {
+    return {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.5",
+      Referer: "https://photos.google.com/",
+      Connection: "keep-alive",
+    };
   }
 }
 
-module.exports = new GooglePhotosService();
+module.exports = {
+  googlePhotosService: new GooglePhotosService(),
+  googlePhotosJobStore,
+};

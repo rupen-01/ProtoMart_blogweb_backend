@@ -1,4 +1,7 @@
-const googlePhotosService = require("../services/googlePhotosService");
+const {
+  googlePhotosService,
+  googlePhotosJobStore,
+} = require("../services/googlePhotosService");
 const Photo = require("../models/Photo");
 
 /**
@@ -65,7 +68,17 @@ exports.syncFromLink = async (req, res) => {
       });
     }
 
-    const { shareLink, latitude, longitude, placeId } = req.body;
+    const {
+      shareLink,
+      latitude,
+      longitude,
+      placeId,
+      experienceDate,
+      experiencePerson,
+      uploadedByPerson,
+      experienceDescription,
+      zipCode,
+    } = req.body;
     const userId = req.user._id;
 
     if (!shareLink) {
@@ -75,29 +88,91 @@ exports.syncFromLink = async (req, res) => {
       });
     }
 
-    // ✅ Prepare manual coordinates if provided
-    const manualCoordinates = (latitude && longitude) 
-      ? { latitude: parseFloat(latitude), longitude: parseFloat(longitude) } 
-      : null;
+    const parsedLatitude = Number.parseFloat(latitude);
+    const parsedLongitude = Number.parseFloat(longitude);
+    const manualCoordinates =
+      Number.isFinite(parsedLatitude) && Number.isFinite(parsedLongitude)
+        ? {
+            latitude: parsedLatitude,
+            longitude: parsedLongitude,
+          }
+        : null;
 
-    // ✅ Pass coordinates and placeId to service
-    const results = await googlePhotosService.syncFromShareLink(
+    const { job, reused } = googlePhotosJobStore.createJob({
       userId,
       shareLink,
-      manualCoordinates,
-      placeId || null
-    );
+    });
 
-    res.json({
+    if (!reused) {
+      googlePhotosService.startSyncJob(job.jobId, {
+        userId,
+        shareLink,
+        manualCoordinates,
+        placeId: placeId || null,
+        metadata: {
+          experienceDate: experienceDate || undefined,
+          experiencePerson: experiencePerson || undefined,
+          uploadedByPerson: uploadedByPerson || undefined,
+          experienceDescription: experienceDescription || undefined,
+          zipCode: zipCode || undefined,
+        },
+      });
+    }
+
+    return res.status(202).json({
       success: true,
-      message: "Photos synced successfully",
-      data: results,
+      jobId: job.jobId,
+      status: job.status,
+      duplicate: reused,
     });
   } catch (error) {
     console.error("Sync from link error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Failed to sync photos",
+    });
+  }
+};
+
+/**
+ * Get Google Photos sync progress
+ * GET /api/google-photos/progress/:jobId
+ * USER AUTH REQUIRED
+ */
+exports.getSyncProgress = async (req, res) => {
+  try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    const { jobId } = req.params;
+    const job = googlePhotosJobStore.getJob(jobId);
+
+    if (!job || job.userId !== req.user._id.toString()) {
+      return res.status(404).json({
+        success: false,
+        message: "Sync job not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      jobId: job.jobId,
+      status: job.status,
+      progress: job.progress,
+      processedImages: job.processedImages,
+      totalImages: job.totalImages,
+      error: job.error,
+      results: job.results,
+    });
+  } catch (error) {
+    console.error("Get sync progress error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get sync progress",
     });
   }
 };
